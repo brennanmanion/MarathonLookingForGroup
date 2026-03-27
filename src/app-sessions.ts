@@ -127,3 +127,47 @@ export async function refreshAppSession(
     });
   });
 }
+
+export async function logoutAppSession(
+  db: DbAdapter | null,
+  refreshTokenValue: string
+): Promise<{ ok: true }> {
+  const database = requireSessionDb(db);
+  const { tokenId, rawSecret } = parseRefreshToken(refreshTokenValue);
+  const tokenHash = hashRefreshTokenSecret(rawSecret);
+
+  await database.withTransaction(async (client) => {
+    const tokenResult = await client.query<{
+      token_id: string;
+      token_hash: string;
+      revoked_at: Date | null;
+    }>(
+      `
+        select
+          token_id::text,
+          token_hash,
+          revoked_at
+        from app_refresh_tokens
+        where token_id = $1
+        for update
+      `,
+      [tokenId]
+    );
+
+    const tokenRow = tokenResult.rows[0];
+    if (!tokenRow || tokenRow.token_hash !== tokenHash || tokenRow.revoked_at) {
+      return;
+    }
+
+    await client.query(
+      `
+        update app_refresh_tokens
+        set revoked_at = now()
+        where token_id = $1
+      `,
+      [tokenRow.token_id]
+    );
+  });
+
+  return { ok: true };
+}

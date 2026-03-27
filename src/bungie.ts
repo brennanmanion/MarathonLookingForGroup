@@ -151,7 +151,11 @@ async function claimLoginTransaction(db: DbAdapter, state: string): Promise<Logi
   });
 }
 
-async function exchangeAuthorizationCode(config: AppConfig, code: string): Promise<BungieTokenResponse> {
+async function exchangeAuthorizationCode(
+  config: AppConfig,
+  code: string,
+  fetchImpl: FetchLike = fetch
+): Promise<BungieTokenResponse> {
   requireBungieConfig(config);
 
   const body = new URLSearchParams();
@@ -163,7 +167,7 @@ async function exchangeAuthorizationCode(config: AppConfig, code: string): Promi
   }
 
   const basicAuth = Buffer.from(`${config.bungieClientId}:${config.bungieClientSecret}`).toString('base64');
-  const response = await fetch('https://www.bungie.net/Platform/App/OAuth/token/', {
+  const response = await fetchImpl('https://www.bungie.net/Platform/App/OAuth/token/', {
     method: 'POST',
     headers: {
       Authorization: `Basic ${basicAuth}`,
@@ -601,7 +605,8 @@ export async function startBungieLogin(
 export async function handleBungieCallback(
   db: DbAdapter | null,
   config: AppConfig,
-  query: CallbackQuery
+  query: CallbackQuery,
+  fetchImpl: FetchLike = fetch
 ): Promise<CallbackResult> {
   const database = requireBungieDb(db);
   requireBungieConfig(config);
@@ -619,8 +624,8 @@ export async function handleBungieCallback(
     throw new AppError(501, 'web_mode_not_implemented', 'Web Bungie login is not implemented yet');
   }
 
-  const tokenResponse = await exchangeAuthorizationCode(config, query.code);
-  const membershipData = await fetchMembershipData(config, tokenResponse.access_token!);
+  const tokenResponse = await exchangeAuthorizationCode(config, query.code, fetchImpl);
+  const membershipData = await fetchMembershipData(config, tokenResponse.access_token!, fetchImpl);
   const persisted = await database.withTransaction((client) =>
     persistUserAndTokens(client, login, tokenResponse, membershipData)
   );

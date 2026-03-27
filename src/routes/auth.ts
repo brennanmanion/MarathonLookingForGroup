@@ -35,7 +35,13 @@ const refreshBodySchema = {
   }
 } as const;
 
-export async function registerAuthRoutes(app: FastifyInstance, deps: { config: AppConfig; db: DbAdapter | null }): Promise<void> {
+interface AuthRouteDeps {
+  config: AppConfig;
+  db: DbAdapter | null;
+  bungieFetch?: typeof fetch;
+}
+
+export async function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): Promise<void> {
   app.post<{ Body: BungieStartBody }>('/auth/bungie/start', {
     schema: {
       body: startBodySchema
@@ -53,7 +59,7 @@ export async function registerAuthRoutes(app: FastifyInstance, deps: { config: A
       error_description?: string;
     };
   }>('/auth/bungie/callback', async (request, reply) => {
-    const result = await handleBungieCallback(deps.db, deps.config, request.query);
+    const result = await handleBungieCallback(deps.db, deps.config, request.query, deps.bungieFetch);
     return reply.redirect(result.redirectUrl);
   });
 

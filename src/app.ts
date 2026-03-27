@@ -8,7 +8,11 @@ import { registerHealthRoutes } from './routes/health.js';
 import { registerMeRoutes } from './routes/me.js';
 import { registerPartyRoutes } from './routes/parties.js';
 
-export async function createApp(config: AppConfig, db: DbAdapter | null) {
+export interface AppServices {
+  bungieFetch?: typeof fetch;
+}
+
+export async function createApp(config: AppConfig, db: DbAdapter | null, services: AppServices = {}) {
   const app = Fastify({
     logger: config.nodeEnv !== 'test'
   });
@@ -35,7 +39,7 @@ export async function createApp(config: AppConfig, db: DbAdapter | null) {
   });
 
   await registerHealthRoutes(app);
-  await registerAuthRoutes(app, { config, db });
+  await registerAuthRoutes(app, services.bungieFetch ? { config, db, bungieFetch: services.bungieFetch } : { config, db });
   await registerMeRoutes(app, { config, db });
   await registerPartyRoutes(app, { config, db });
 

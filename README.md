@@ -12,11 +12,11 @@ Initial backend scaffold for the Marathon LFG MVP.
 
 - Project config and runtime scaffold are in place.
 - Native Bungie auth start, callback, and handoff consume routes are implemented.
-- Bearer-token auth is wired for `/me`, `POST /parties`, and `POST /parties/:partyId/join`.
+- Bearer-token auth is wired for `/me` and protected party mutations.
 - The initial SQL migration is in `migrations/0001_init.sql`.
-- `/me`, `POST /parties`, and `POST /parties/:partyId/join` are implemented.
-- Host moderation for pending-to-accepted lifecycle is implemented with accept, decline, and kick routes.
-- Bungie resync, leave, cancel, list, and detail flows are still stubbed with `501 not_implemented`.
+- `/me`, `POST /parties`, `GET /parties`, `GET /parties/:partyId`, and `POST /parties/:partyId/join` are implemented.
+- Host moderation plus leave and cancel flows are implemented.
+- Bungie resync and `PATCH /parties/:partyId` are still stubbed with `501 not_implemented`.
 
 ## Local setup
 
@@ -40,10 +40,10 @@ docker compose down
 
 ## Using Docker Postgres From Another Thread
 
-If another Codex thread opens this repo later, it should use the backend workspace here:
+If another Codex thread opens this repo later, run commands from the repository root:
 
 ```bash
-cd MarathonLookingForGroup
+cd /Users/brennan/Documents/MaratonLookingForGroup/MarathonLookingForGroup
 ```
 
 Start the database:
@@ -83,10 +83,9 @@ If the thread needs the API as well:
 
 ```bash
 npm install
+npm run build
 node dist/server.js
 ```
-
-Use `npm run build` first if `dist/` is stale.
 
 ## Implemented endpoint
 
@@ -137,6 +136,30 @@ Example response:
 
 - Requires bearer auth.
 - Enforces the merged spec's reapply rules for `accepted`, `pending`, and `kicked`.
+
+`GET /parties`
+
+- Public route.
+- Returns public parties plus non-public parties visible to the current host or active member when bearer auth is provided.
+- Includes computed capacity, tags, host identity, and the caller's latest membership state when available.
+
+`GET /parties/:partyId`
+
+- Public route for public non-cancelled parties.
+- Also returns non-public or cancelled parties to the host or an active member when bearer auth is provided.
+- Includes computed capacity, tags, host identity, and the caller's latest membership state when available.
+
+`POST /parties/:partyId/leave`
+
+- Requires bearer auth.
+- Lets an accepted or pending member leave the party and records a `left` membership event.
+- Hosts must use cancel instead of leave.
+
+`POST /parties/:partyId/cancel`
+
+- Requires bearer auth.
+- Requires the caller to be the party host.
+- Marks the party as `cancelled`.
 
 `POST /parties/:partyId/members/:memberId/accept`
 

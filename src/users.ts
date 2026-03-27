@@ -99,3 +99,20 @@ export async function requireCurrentUser(
   return findCurrentUser(db, payload.sub);
 }
 
+export async function findOptionalCurrentUser(
+  request: FastifyRequest,
+  db: DbAdapter | null,
+  config: AppConfig
+): Promise<CurrentUser | null> {
+  if (!request.headers.authorization) {
+    return null;
+  }
+
+  if (!db) {
+    throw new AppError(503, 'db_unavailable', 'DATABASE_URL is not configured');
+  }
+
+  const token = extractBearerToken(request);
+  const payload = verifyAccessToken(config, token);
+  return findCurrentUser(db, payload.sub);
+}

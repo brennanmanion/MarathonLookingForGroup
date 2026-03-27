@@ -1,11 +1,21 @@
 import type { FastifyInstance } from 'fastify';
 
-import { acceptPartyMember, createParty, declinePartyMember, joinParty, kickPartyMember } from '../parties.js';
+import {
+  acceptPartyMember,
+  cancelParty,
+  createParty,
+  declinePartyMember,
+  getParty,
+  joinParty,
+  kickPartyMember,
+  leaveParty,
+  listParties
+} from '../parties.js';
 import type { AppConfig } from '../config.js';
 import type { DbAdapter } from '../db.js';
 import { AppError } from '../errors.js';
 import type { CreatePartyBody } from '../types.js';
-import { requireCurrentUser } from '../users.js';
+import { findOptionalCurrentUser, requireCurrentUser } from '../users.js';
 
 async function notImplemented(): Promise<never> {
   throw new AppError(501, 'not_implemented', 'Party endpoints have not been implemented yet');
@@ -65,6 +75,15 @@ const memberActionParamsSchema = {
   }
 } as const;
 
+const partyParamsSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['partyId'],
+  properties: {
+    partyId: { type: 'string', minLength: 1 }
+  }
+} as const;
+
 export async function registerPartyRoutes(app: FastifyInstance, deps: { config: AppConfig; db: DbAdapter | null }): Promise<void> {
   app.post<{ Body: CreatePartyBody }>('/parties', {
     schema: {
@@ -76,11 +95,26 @@ export async function registerPartyRoutes(app: FastifyInstance, deps: { config: 
     return reply.code(201).send(result);
   });
 
-  app.get('/parties', notImplemented);
-  app.get('/parties/:partyId', notImplemented);
+  app.get('/parties', async (request, reply) => {
+    const user = await findOptionalCurrentUser(request, deps.db, deps.config);
+    const result = await listParties(deps.db, user);
+    return reply.code(200).send(result);
+  });
+
+  app.get<{ Params: { partyId: string } }>('/parties/:partyId', {
+    schema: {
+      params: partyParamsSchema
+    }
+  }, async (request, reply) => {
+    const user = await findOptionalCurrentUser(request, deps.db, deps.config);
+    const result = await getParty(deps.db, user, request.params.partyId);
+    return reply.code(200).send(result);
+  });
+
   app.patch('/parties/:partyId', notImplemented);
   app.post<{ Params: { partyId: string }; Body: { noteToHost?: string } }>('/parties/:partyId/join', {
     schema: {
+      params: partyParamsSchema,
       body: joinPartyBodySchema
     }
   }, async (request, reply) => {
@@ -89,8 +123,25 @@ export async function registerPartyRoutes(app: FastifyInstance, deps: { config: 
     return reply.code(200).send(result);
   });
 
-  app.post('/parties/:partyId/leave', notImplemented);
-  app.post('/parties/:partyId/cancel', notImplemented);
+  app.post<{ Params: { partyId: string } }>('/parties/:partyId/leave', {
+    schema: {
+      params: partyParamsSchema
+    }
+  }, async (request, reply) => {
+    const user = await requireCurrentUser(request, deps.db, deps.config);
+    const result = await leaveParty(deps.db, user, request.params.partyId);
+    return reply.code(200).send(result);
+  });
+
+  app.post<{ Params: { partyId: string } }>('/parties/:partyId/cancel', {
+    schema: {
+      params: partyParamsSchema
+    }
+  }, async (request, reply) => {
+    const user = await requireCurrentUser(request, deps.db, deps.config);
+    const result = await cancelParty(deps.db, user, request.params.partyId);
+    return reply.code(200).send(result);
+  });
   app.post<{ Params: { partyId: string; memberId: string } }>('/parties/:partyId/members/:memberId/accept', {
     schema: {
       params: memberActionParamsSchema

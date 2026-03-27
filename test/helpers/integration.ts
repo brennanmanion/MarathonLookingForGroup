@@ -117,3 +117,43 @@ export async function seedVerifiedUser(
     await pool.end();
   }
 }
+
+export async function seedBungieOauthTokens(
+  databaseUrl: string,
+  input: {
+    userId: string;
+    accessToken: string;
+    refreshToken?: string | null;
+    accessTokenExpiresAt: Date;
+    refreshTokenExpiresAt?: Date | null;
+    isStale?: boolean;
+  }
+): Promise<void> {
+  const pool = new Pool({ connectionString: databaseUrl });
+
+  try {
+    await pool.query(
+      `
+        insert into bungie_oauth_tokens (
+          user_id,
+          access_token,
+          refresh_token,
+          access_token_expires_at,
+          refresh_token_expires_at,
+          is_stale
+        )
+        values ($1::uuid, $2, $3, $4, $5, $6)
+      `,
+      [
+        input.userId,
+        input.accessToken,
+        input.refreshToken ?? null,
+        input.accessTokenExpiresAt,
+        input.refreshTokenExpiresAt ?? null,
+        input.isStale ?? false
+      ]
+    );
+  } finally {
+    await pool.end();
+  }
+}

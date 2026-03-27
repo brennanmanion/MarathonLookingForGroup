@@ -10,7 +10,7 @@ import { registerPartyRoutes } from './routes/parties.js';
 
 export async function createApp(config: AppConfig, db: DbAdapter | null) {
   const app = Fastify({
-    logger: true
+    logger: config.nodeEnv !== 'test'
   });
 
   if (db) {

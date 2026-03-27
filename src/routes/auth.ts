@@ -1,10 +1,11 @@
 import type { FastifyInstance } from 'fastify';
 
+import { refreshAppSession } from '../app-sessions.js';
 import { consumeHandoffTicket, handleBungieCallback, startBungieLogin } from '../bungie.js';
 import type { AppConfig } from '../config.js';
 import type { DbAdapter } from '../db.js';
 import { AppError } from '../errors.js';
-import type { BungieStartBody, HandoffConsumeBody } from '../types.js';
+import type { BungieStartBody, HandoffConsumeBody, RefreshTokenBody } from '../types.js';
 
 const startBodySchema = {
   type: 'object',
@@ -23,6 +24,15 @@ const handoffBodySchema = {
   properties: {
     ticket: { type: 'string' },
     loginId: { type: 'string' }
+  }
+} as const;
+
+const refreshBodySchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['refreshToken'],
+  properties: {
+    refreshToken: { type: 'string', minLength: 1 }
   }
 } as const;
 
@@ -54,6 +64,19 @@ export async function registerAuthRoutes(app: FastifyInstance, deps: { config: A
     }
   }, async (request, reply) => {
     const result = await consumeHandoffTicket(deps.db, deps.config, request.body, {
+      ip: request.ip,
+      userAgent: request.headers['user-agent']
+    });
+
+    return reply.code(200).send(result);
+  });
+
+  app.post<{ Body: RefreshTokenBody }>('/auth/refresh', {
+    schema: {
+      body: refreshBodySchema
+    }
+  }, async (request, reply) => {
+    const result = await refreshAppSession(deps.db, deps.config, request.body.refreshToken, {
       ip: request.ip,
       userAgent: request.headers['user-agent']
     });

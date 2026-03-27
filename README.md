@@ -12,6 +12,7 @@ Initial backend scaffold for the Marathon LFG MVP.
 
 - Project config and runtime scaffold are in place.
 - Native Bungie auth start, callback, and handoff consume routes are implemented.
+- First-party app session refresh is implemented.
 - Bearer-token auth is wired for `/me` and protected party mutations.
 - The initial SQL migration is in `migrations/0001_init.sql`.
 - `/me`, `POST /parties`, `GET /parties`, `GET /parties/:partyId`, and `POST /parties/:partyId/join` are implemented.
@@ -121,6 +122,11 @@ Example response:
 
 - Consumes a one-time handoff ticket.
 - Returns a first-party access token and refresh token.
+
+`POST /auth/refresh`
+
+- Accepts an app refresh token.
+- Rotates the refresh token and returns a new access token plus new refresh token.
 
 `GET /me`
 

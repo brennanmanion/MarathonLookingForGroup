@@ -2,11 +2,11 @@ import { randomUUID } from 'node:crypto';
 
 import type { PoolClient } from 'pg';
 
+import { createAppSession } from './app-sessions.js';
 import type { AppConfig } from './config.js';
 import type { DbAdapter } from './db.js';
 import { AppError } from './errors.js';
-import { issueAccessToken, issueRefreshToken } from './session.js';
-import type { BungieStartBody, BungieStartResponse, HandoffConsumeBody, RedirectMode } from './types.js';
+import type { AppSessionResponse, BungieStartBody, BungieStartResponse, HandoffConsumeBody, RedirectMode } from './types.js';
 
 const LOGIN_TTL_MS = 10 * 60 * 1000;
 const HANDOFF_TTL_MS = 60 * 1000;
@@ -58,13 +58,6 @@ interface CallbackQuery {
 
 interface CallbackResult {
   redirectUrl: string;
-}
-
-interface HandoffConsumeResult {
-  accessToken: string;
-  refreshToken: string;
-  expiresIn: number;
-  refreshExpiresIn: number;
 }
 
 interface PersistedUser {
@@ -440,7 +433,7 @@ export async function consumeHandoffTicket(
   config: AppConfig,
   body: HandoffConsumeBody,
   metadata: { ip: string | undefined; userAgent: string | undefined }
-): Promise<HandoffConsumeResult> {
+): Promise<AppSessionResponse> {
   const database = requireBungieDb(db);
 
   return database.withTransaction(async (client) => {
@@ -486,38 +479,10 @@ export async function consumeHandoffTicket(
       [body.ticket]
     );
 
-    const accessToken = issueAccessToken(config, ticket.user_id);
-    const refreshToken = issueRefreshToken();
-
-    await client.query(
-      `
-        insert into app_refresh_tokens (
-          token_id,
-          user_id,
-          token_hash,
-          created_by_login_id,
-          expires_at,
-          ip,
-          user_agent
-        )
-        values ($1, $2, $3, $4, $5, $6, $7)
-      `,
-      [
-        refreshToken.tokenId,
-        ticket.user_id,
-        refreshToken.tokenHash,
-        ticket.login_id,
-        refreshToken.expiresAt,
-        metadata.ip ?? null,
-        metadata.userAgent ?? null
-      ]
-    );
-
-    return {
-      accessToken: accessToken.token,
-      refreshToken: refreshToken.token,
-      expiresIn: accessToken.expiresIn,
-      refreshExpiresIn: refreshToken.expiresIn
-    };
+    return createAppSession(client, config, {
+      userId: ticket.user_id,
+      createdByLoginId: ticket.login_id,
+      metadata
+    });
   });
 }

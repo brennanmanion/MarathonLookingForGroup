@@ -18,7 +18,8 @@ Initial backend scaffold for the Marathon LFG MVP.
 - The initial SQL migration is in `migrations/0001_init.sql`.
 - `/me`, `POST /parties`, `GET /parties`, `GET /parties/:partyId`, and `POST /parties/:partyId/join` are implemented.
 - Host moderation plus leave and cancel flows are implemented.
-- Bungie resync and `PATCH /parties/:partyId` are still stubbed with `501 not_implemented`.
+- Bungie resync is implemented.
+- `PATCH /parties/:partyId` is still stubbed with `501 not_implemented`.
 
 ## Local setup
 
@@ -138,6 +139,13 @@ Example response:
 
 - Requires `Authorization: Bearer <accessToken>`.
 - Returns the current app user plus Bungie and Marathon verification state.
+
+`POST /me/bungie/resync`
+
+- Requires bearer auth.
+- Uses the stored Bungie OAuth session to refresh membership state.
+- Refreshes the stored Bungie access token if needed.
+- Updates Bungie identity fields and Marathon verification state.
 
 `POST /parties`
 

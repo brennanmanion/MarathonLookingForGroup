@@ -4,9 +4,10 @@ import type { PoolClient } from 'pg';
 
 import { createAppSession } from './app-sessions.js';
 import type { AppConfig } from './config.js';
-import type { DbAdapter } from './db.js';
+import type { DbAdapter, Queryable } from './db.js';
 import { AppError } from './errors.js';
 import type { AppSessionResponse, BungieStartBody, BungieStartResponse, HandoffConsumeBody, RedirectMode } from './types.js';
+import { findCurrentUser, type CurrentUser } from './users.js';
 
 const LOGIN_TTL_MS = 10 * 60 * 1000;
 const HANDOFF_TTL_MS = 60 * 1000;
@@ -64,6 +65,20 @@ interface PersistedUser {
   userId: string;
   handoffTicket: string;
 }
+
+interface StoredBungieSessionRow {
+  user_id: string;
+  bungie_membership_id: string | null;
+  access_token: string;
+  refresh_token: string | null;
+  access_token_expires_at: Date;
+  refresh_token_expires_at: Date | null;
+  is_stale: boolean;
+}
+
+type FetchLike = typeof fetch;
+
+const ACCESS_TOKEN_REFRESH_GRACE_MS = 60 * 1000;
 
 function requireBungieDb(db: DbAdapter | null): DbAdapter {
   if (!db) {
@@ -165,10 +180,43 @@ async function exchangeAuthorizationCode(config: AppConfig, code: string): Promi
   return payload;
 }
 
-async function fetchMembershipData(config: AppConfig, accessToken: string): Promise<BungieMembershipData> {
+async function exchangeRefreshToken(
+  config: AppConfig,
+  refreshToken: string,
+  fetchImpl: FetchLike = fetch
+): Promise<BungieTokenResponse> {
   requireBungieConfig(config);
 
-  const response = await fetch('https://www.bungie.net/Platform/User/GetMembershipsForCurrentUser/', {
+  const body = new URLSearchParams();
+  body.set('grant_type', 'refresh_token');
+  body.set('refresh_token', refreshToken);
+
+  const basicAuth = Buffer.from(`${config.bungieClientId}:${config.bungieClientSecret}`).toString('base64');
+  const response = await fetchImpl('https://www.bungie.net/Platform/App/OAuth/token/', {
+    method: 'POST',
+    headers: {
+      Authorization: `Basic ${basicAuth}`,
+      'Content-Type': 'application/x-www-form-urlencoded'
+    },
+    body
+  });
+
+  const payload = (await response.json()) as BungieTokenResponse;
+  if (!response.ok || !payload.access_token || !payload.expires_in) {
+    throw new AppError(502, 'bungie_token_refresh_failed', 'Bungie token refresh failed');
+  }
+
+  return payload;
+}
+
+async function fetchMembershipData(
+  config: AppConfig,
+  accessToken: string,
+  fetchImpl: FetchLike = fetch
+): Promise<BungieMembershipData> {
+  requireBungieConfig(config);
+
+  const response = await fetchImpl('https://www.bungie.net/Platform/User/GetMembershipsForCurrentUser/', {
     headers: {
       'X-API-Key': config.bungieApiKey!,
       Authorization: `Bearer ${accessToken}`
@@ -193,6 +241,160 @@ function resolveMembershipId(tokenResponse: BungieTokenResponse, membershipData:
   }
 
   return value;
+}
+
+async function loadStoredBungieSession(client: PoolClient, userId: string): Promise<StoredBungieSessionRow> {
+  const result = await client.query<StoredBungieSessionRow>(
+    `
+      select
+        ba.user_id::text,
+        ba.bungie_membership_id::text,
+        bot.access_token,
+        bot.refresh_token,
+        bot.access_token_expires_at,
+        bot.refresh_token_expires_at,
+        bot.is_stale
+      from bungie_accounts ba
+      join bungie_oauth_tokens bot on bot.user_id = ba.user_id
+      where ba.user_id = $1
+      for update of ba, bot
+    `,
+    [userId]
+  );
+
+  const row = result.rows[0];
+  if (!row) {
+    throw new AppError(502, 'bungie_token_refresh_failed', 'Stored Bungie session is missing. Re-authenticate and try again.');
+  }
+
+  return row;
+}
+
+async function markBungieTokensStale(queryable: Queryable, userId: string): Promise<void> {
+  await queryable.query(
+    `
+      update bungie_oauth_tokens
+      set is_stale = true,
+          updated_at = now()
+      where user_id = $1
+    `,
+    [userId]
+  );
+}
+
+async function persistRefreshedBungieTokens(
+  client: PoolClient,
+  userId: string,
+  tokenResponse: BungieTokenResponse
+): Promise<void> {
+  const now = new Date();
+  const accessTokenExpiresAt = new Date(now.getTime() + tokenResponse.expires_in! * 1000);
+  const refreshTokenExpiresAt = tokenResponse.refresh_expires_in
+    ? new Date(now.getTime() + tokenResponse.refresh_expires_in * 1000)
+    : null;
+
+  await client.query(
+    `
+      update bungie_oauth_tokens
+      set
+        access_token = $2,
+        refresh_token = coalesce($3, refresh_token),
+        access_token_expires_at = $4,
+        refresh_token_expires_at = coalesce($5, refresh_token_expires_at),
+        is_stale = false,
+        updated_at = now()
+      where user_id = $1
+    `,
+    [
+      userId,
+      tokenResponse.access_token!,
+      tokenResponse.refresh_token ?? null,
+      accessTokenExpiresAt,
+      refreshTokenExpiresAt
+    ]
+  );
+}
+
+function shouldRefreshStoredBungieAccessToken(session: StoredBungieSessionRow): boolean {
+  return session.is_stale || session.access_token_expires_at.getTime() <= Date.now() + ACCESS_TOKEN_REFRESH_GRACE_MS;
+}
+
+async function ensureFreshBungieAccessToken(
+  client: PoolClient,
+  config: AppConfig,
+  session: StoredBungieSessionRow,
+  fetchImpl: FetchLike = fetch
+): Promise<string> {
+  if (!shouldRefreshStoredBungieAccessToken(session)) {
+    return session.access_token;
+  }
+
+  if (!session.refresh_token || (session.refresh_token_expires_at && session.refresh_token_expires_at.getTime() <= Date.now())) {
+    await markBungieTokensStale(client, session.user_id);
+    throw new AppError(502, 'bungie_token_refresh_failed', 'Stored Bungie session is missing. Re-authenticate and try again.');
+  }
+
+  try {
+    const refreshed = await exchangeRefreshToken(config, session.refresh_token, fetchImpl);
+    await persistRefreshedBungieTokens(client, session.user_id, refreshed);
+    return refreshed.access_token!;
+  } catch (error) {
+    await markBungieTokensStale(client, session.user_id);
+    if (error instanceof AppError) {
+      throw error;
+    }
+
+    throw new AppError(502, 'bungie_token_refresh_failed', 'Bungie token refresh failed');
+  }
+}
+
+async function persistMembershipSync(
+  client: PoolClient,
+  input: {
+    userId: string;
+    currentBungieMembershipId: string | null;
+    membershipData: BungieMembershipData;
+  }
+): Promise<void> {
+  const now = new Date();
+  const bungieMembershipId = input.membershipData.bungieNetUser?.membershipId ?? input.currentBungieMembershipId;
+  if (!bungieMembershipId) {
+    throw new AppError(502, 'bungie_auth_failed', 'Bungie membership data is missing a membership id');
+  }
+
+  const marathonMembershipId = input.membershipData.marathonMembershipId ?? null;
+  const marathonVerified = marathonMembershipId !== null;
+
+  await client.query(
+    `
+      update bungie_accounts
+      set
+        bungie_membership_id = $2,
+        bungie_display_name = $3,
+        bungie_global_display_name = $4,
+        bungie_global_display_name_code = $5,
+        bungie_verified = true,
+        bungie_verified_at = coalesce(bungie_verified_at, now()),
+        marathon_membership_id = $6,
+        marathon_verified = $7,
+        marathon_verified_at = $8,
+        last_membership_sync_at = now(),
+        raw_membership_payload = $9::jsonb,
+        updated_at = now()
+      where user_id = $1
+    `,
+    [
+      input.userId,
+      bungieMembershipId,
+      input.membershipData.bungieNetUser?.displayName ?? null,
+      input.membershipData.bungieNetUser?.uniqueName ?? null,
+      input.membershipData.bungieNetUser?.displayNameCode ?? null,
+      marathonMembershipId,
+      marathonVerified,
+      marathonVerified ? now : null,
+      JSON.stringify(input.membershipData)
+    ]
+  );
 }
 
 async function persistUserAndTokens(
@@ -485,4 +687,36 @@ export async function consumeHandoffTicket(
       metadata
     });
   });
+}
+
+export async function resyncBungieAccount(
+  db: DbAdapter | null,
+  config: AppConfig,
+  user: CurrentUser,
+  fetchImpl: FetchLike = fetch
+): Promise<CurrentUser> {
+  const database = requireBungieDb(db);
+  requireBungieConfig(config);
+
+  try {
+    return await database.withTransaction(async (client) => {
+      const session = await loadStoredBungieSession(client, user.userId);
+      const accessToken = await ensureFreshBungieAccessToken(client, config, session, fetchImpl);
+      const membershipData = await fetchMembershipData(config, accessToken, fetchImpl);
+
+      await persistMembershipSync(client, {
+        userId: user.userId,
+        currentBungieMembershipId: session.bungie_membership_id,
+        membershipData
+      });
+
+      return findCurrentUser(client, user.userId);
+    });
+  } catch (error) {
+    if (error instanceof AppError && error.code === 'bungie_token_refresh_failed') {
+      await markBungieTokensStale(database, user.userId);
+    }
+
+    throw error;
+  }
 }

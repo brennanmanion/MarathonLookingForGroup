@@ -16,6 +16,17 @@ export interface HandoffConsumeBody {
   loginId: string;
 }
 
+export interface RefreshTokenBody {
+  refreshToken: string;
+}
+
+export interface AppSessionResponse {
+  accessToken: string;
+  refreshToken: string;
+  expiresIn: number;
+  refreshExpiresIn: number;
+}
+
 export interface CreatePartyTagInput {
   tagKey: string;
   tagValue?: string;

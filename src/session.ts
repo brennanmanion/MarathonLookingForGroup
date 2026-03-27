@@ -5,6 +5,7 @@ import { AppError } from './errors.js';
 
 const ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
 const REFRESH_TOKEN_TTL_SECONDS = 90 * 24 * 60 * 60;
+const REFRESH_TOKEN_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 interface AccessTokenPayload {
   sub: string;
@@ -40,6 +41,10 @@ function signPayload(secret: string, payload: string): string {
 
 function encodePayload(payload: AccessTokenPayload): string {
   return Buffer.from(JSON.stringify(payload)).toString('base64url');
+}
+
+export function hashRefreshTokenSecret(rawSecret: string): string {
+  return createHash('sha256').update(rawSecret).digest('hex');
 }
 
 export function issueAccessToken(config: AppConfig, userId: string): IssuedAccessToken {
@@ -110,9 +115,30 @@ export function issueRefreshToken(): IssuedRefreshToken {
   return {
     tokenId,
     token: `rt_${tokenId}_${raw}`,
-    tokenHash: createHash('sha256').update(raw).digest('hex'),
+    tokenHash: hashRefreshTokenSecret(raw),
     expiresAt,
     expiresIn: REFRESH_TOKEN_TTL_SECONDS
   };
 }
 
+export function parseRefreshToken(token: string): { tokenId: string; rawSecret: string } {
+  if (!token.startsWith('rt_')) {
+    throw new AppError(401, 'auth_invalid', 'Invalid refresh token');
+  }
+
+  const separatorIndex = token.indexOf('_', 3);
+  if (separatorIndex === -1) {
+    throw new AppError(401, 'auth_invalid', 'Invalid refresh token');
+  }
+
+  const tokenId = token.slice(3, separatorIndex);
+  const rawSecret = token.slice(separatorIndex + 1);
+  if (!REFRESH_TOKEN_ID_PATTERN.test(tokenId) || rawSecret.length === 0) {
+    throw new AppError(401, 'auth_invalid', 'Invalid refresh token');
+  }
+
+  return {
+    tokenId,
+    rawSecret
+  };
+}

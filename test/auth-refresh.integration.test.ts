@@ -147,3 +147,104 @@ test('integration: refresh endpoint rotates refresh token and returns a working 
     await dropIsolatedDatabase(loadedConfig.databaseUrl, databaseName);
   }
 });
+
+test('integration: logout endpoint revokes the current refresh token', async () => {
+  const loadedConfig = loadConfig();
+  assert.ok(loadedConfig.databaseUrl, 'DATABASE_URL must be configured to run integration tests');
+
+  const databaseName = buildTestDatabaseName();
+  const isolatedDatabaseUrl = buildDatabaseUrl(loadedConfig.databaseUrl, databaseName);
+  let app: Awaited<ReturnType<typeof createApp>> | undefined;
+
+  await createIsolatedDatabase(loadedConfig.databaseUrl, databaseName);
+
+  try {
+    await applyMigration(isolatedDatabaseUrl);
+    await seedVerifiedUser(isolatedDatabaseUrl, {
+      userId: HOST_USER_ID,
+      bungieMembershipId: '800000000000001',
+      marathonMembershipId: '810000000000001',
+      displayName: 'HostUser',
+      displayNameCode: 1111
+    });
+
+    const config: AppConfig = {
+      ...loadedConfig,
+      nodeEnv: 'test',
+      host: '127.0.0.1',
+      port: 0,
+      databaseUrl: isolatedDatabaseUrl,
+      appSessionSecret: loadedConfig.appSessionSecret ?? 'integration-test-session-secret'
+    };
+
+    const db = createDbAdapter(config.databaseUrl);
+    assert.ok(db, 'Database adapter should be created for integration tests');
+
+    app = await createApp(config, db);
+    await app.ready();
+
+    const initialSession = await db.withTransaction((client) =>
+      createAppSession(client, config, {
+        userId: HOST_USER_ID,
+        metadata: {
+          ip: '127.0.0.1',
+          userAgent: 'integration-test'
+        }
+      })
+    );
+
+    const logoutResponse = await app.inject({
+      method: 'POST',
+      url: '/auth/logout',
+      payload: {
+        refreshToken: initialSession.refreshToken
+      }
+    });
+
+    assert.equal(logoutResponse.statusCode, 200);
+    assert.deepEqual(logoutResponse.json(), { ok: true });
+
+    const oldToken = parseRefreshToken(initialSession.refreshToken);
+    const refreshRowResult = await db.query<{ revoked_at: string | null }>(
+      `
+        select revoked_at::text as revoked_at
+        from app_refresh_tokens
+        where token_id = $1::uuid
+      `,
+      [oldToken.tokenId]
+    );
+
+    assert.ok(refreshRowResult.rows[0]?.revoked_at, 'Logout should revoke the current refresh token');
+
+    const refreshResponse = await app.inject({
+      method: 'POST',
+      url: '/auth/refresh',
+      payload: {
+        refreshToken: initialSession.refreshToken
+      }
+    });
+
+    assert.equal(refreshResponse.statusCode, 401);
+    assert.deepEqual(refreshResponse.json(), {
+      error: 'auth_invalid',
+      message: 'Invalid refresh token'
+    });
+
+    const secondLogoutResponse = await app.inject({
+      method: 'POST',
+      url: '/auth/logout',
+      payload: {
+        refreshToken: initialSession.refreshToken
+      }
+    });
+
+    assert.equal(secondLogoutResponse.statusCode, 200);
+    assert.deepEqual(secondLogoutResponse.json(), { ok: true });
+  } finally {
+    if (app) {
+      await app.close();
+    }
+
+    await dropIsolatedDatabase(loadedConfig.databaseUrl, databaseName);
+  }
+});

@@ -1,10 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 
-import { refreshAppSession } from '../app-sessions.js';
+import { logoutAppSession, refreshAppSession } from '../app-sessions.js';
 import { consumeHandoffTicket, handleBungieCallback, startBungieLogin } from '../bungie.js';
 import type { AppConfig } from '../config.js';
 import type { DbAdapter } from '../db.js';
-import { AppError } from '../errors.js';
 import type { BungieStartBody, HandoffConsumeBody, RefreshTokenBody } from '../types.js';
 
 const startBodySchema = {
@@ -84,7 +83,12 @@ export async function registerAuthRoutes(app: FastifyInstance, deps: { config: A
     return reply.code(200).send(result);
   });
 
-  app.post('/auth/logout', async () => {
-    throw new AppError(501, 'not_implemented', 'Logout has not been implemented yet');
+  app.post<{ Body: RefreshTokenBody }>('/auth/logout', {
+    schema: {
+      body: refreshBodySchema
+    }
+  }, async (request, reply) => {
+    const result = await logoutAppSession(deps.db, request.body.refreshToken);
+    return reply.code(200).send(result);
   });
 }

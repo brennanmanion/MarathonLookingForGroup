@@ -7,6 +7,8 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc -p tsconfig.json",
     "check": "tsc --noEmit -p tsconfig.json",
+    "check:tests": "tsc --noEmit -p tsconfig.test.json",
+    "test:integration": "node --import tsx --test test/**/*.test.ts",
     "start": "node dist/server.js"
   },
   "dependencies": {
@@ -21,4 +23,3 @@
     "typescript": "^5.8.2"
   }
 }
-

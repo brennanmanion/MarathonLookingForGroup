@@ -14,11 +14,19 @@ import {
 import type { AppConfig } from '../config.js';
 import type { DbAdapter } from '../db.js';
 import { AppError } from '../errors.js';
-import type { CreatePartyBody } from '../types.js';
+import type { CreatePartyBody, UpdatePartyBody } from '../types.js';
 import { findOptionalCurrentUser, requireCurrentUser } from '../users.js';
 
 async function notImplemented(): Promise<never> {
   throw new AppError(501, 'not_implemented', 'Party endpoints have not been implemented yet');
+}
+
+async function partyEditDeferred(): Promise<never> {
+  throw new AppError(
+    501,
+    'party_edit_deferred',
+    'Party editing is deferred for the current MVP. Planned host-only edits include title, max size, schedule, requirements, description, and tags.'
+  );
 }
 
 const createPartyBodySchema = {
@@ -62,6 +70,55 @@ const joinPartyBodySchema = {
   additionalProperties: false,
   properties: {
     noteToHost: { type: 'string' }
+  }
+} as const;
+
+const nullableStringSchema = {
+  anyOf: [
+    { type: 'string' },
+    { type: 'null' }
+  ]
+} as const;
+
+const nullableBooleanSchema = {
+  anyOf: [
+    { type: 'boolean' },
+    { type: 'null' }
+  ]
+} as const;
+
+const updatePartyBodySchema = {
+  type: 'object',
+  additionalProperties: false,
+  minProperties: 1,
+  properties: {
+    title: { type: 'string', minLength: 1 },
+    playlistKey: nullableStringSchema,
+    platformKey: { type: 'string', minLength: 1 },
+    regionKey: nullableStringSchema,
+    languageKey: nullableStringSchema,
+    voiceRequired: { type: 'boolean' },
+    ranked: nullableBooleanSchema,
+    scheduledFor: nullableStringSchema,
+    maxSize: { type: 'integer', minimum: 1 },
+    approvalMode: { type: 'string', minLength: 1 },
+    visibility: { type: 'string', minLength: 1 },
+    requiresMarathonVerified: { type: 'boolean' },
+    requirementText: nullableStringSchema,
+    description: nullableStringSchema,
+    externalJoinUrl: nullableStringSchema,
+    tags: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['tagKey'],
+        properties: {
+          tagKey: { type: 'string', minLength: 1 },
+          tagValue: nullableStringSchema
+        }
+      }
+    }
   }
 } as const;
 
@@ -111,7 +168,15 @@ export async function registerPartyRoutes(app: FastifyInstance, deps: { config: 
     return reply.code(200).send(result);
   });
 
-  app.patch('/parties/:partyId', notImplemented);
+  app.patch<{ Params: { partyId: string }; Body: UpdatePartyBody }>('/parties/:partyId', {
+    schema: {
+      params: partyParamsSchema,
+      body: updatePartyBodySchema
+    }
+  }, async (request) => {
+    await requireCurrentUser(request, deps.db, deps.config);
+    return partyEditDeferred();
+  });
   app.post<{ Params: { partyId: string }; Body: { noteToHost?: string } }>('/parties/:partyId/join', {
     schema: {
       params: partyParamsSchema,

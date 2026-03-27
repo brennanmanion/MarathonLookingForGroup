@@ -19,7 +19,7 @@ Initial backend scaffold for the Marathon LFG MVP.
 - `/me`, `POST /parties`, `GET /parties`, `GET /parties/:partyId`, and `POST /parties/:partyId/join` are implemented.
 - Host moderation plus leave and cancel flows are implemented.
 - Bungie resync is implemented.
-- `PATCH /parties/:partyId` is still stubbed with `501 not_implemented`.
+- `PATCH /parties/:partyId` has a typed deferred placeholder and currently returns `501 party_edit_deferred`.
 
 ## Local setup
 
@@ -180,6 +180,12 @@ Example response:
 - Requires bearer auth.
 - Requires the caller to be the party host.
 - Marks the party as `cancelled`.
+
+`PATCH /parties/:partyId`
+
+- Requires bearer auth.
+- Accepts the planned host-edit body shape for fields like title, max size, schedule, requirements, description, and tags.
+- Currently returns `501 party_edit_deferred` while party editing remains deferred from the active MVP.
 
 `POST /parties/:partyId/members/:memberId/accept`
 

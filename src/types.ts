@@ -51,3 +51,22 @@ export interface CreatePartyBody {
   externalJoinUrl?: string;
   tags?: CreatePartyTagInput[];
 }
+
+export interface UpdatePartyBody {
+  title?: string;
+  playlistKey?: string | null;
+  platformKey?: string;
+  regionKey?: string | null;
+  languageKey?: string | null;
+  voiceRequired?: boolean;
+  ranked?: boolean | null;
+  scheduledFor?: string | null;
+  maxSize?: number;
+  approvalMode?: string;
+  visibility?: string;
+  requiresMarathonVerified?: boolean;
+  requirementText?: string | null;
+  description?: string | null;
+  externalJoinUrl?: string | null;
+  tags?: CreatePartyTagInput[];
+}

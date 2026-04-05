@@ -2,6 +2,7 @@ import Fastify from 'fastify';
 
 import type { AppConfig } from './config.js';
 import type { DbAdapter } from './db.js';
+import { registerDocs } from './docs.js';
 import { isAppError } from './errors.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerHealthRoutes } from './routes/health.js';
@@ -38,6 +39,7 @@ export async function createApp(config: AppConfig, db: DbAdapter | null, service
     });
   });
 
+  await registerDocs(app);
   await registerHealthRoutes(app);
   await registerAuthRoutes(app, services.bungieFetch ? { config, db, bungieFetch: services.bungieFetch } : { config, db });
   await registerMeRoutes(app, { config, db });

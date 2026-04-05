@@ -20,6 +20,7 @@ Initial backend scaffold for the Marathon LFG MVP.
 - Host moderation plus leave and cancel flows are implemented.
 - Bungie resync is implemented.
 - `PATCH /parties/:partyId` has a typed deferred placeholder and currently returns `501 party_edit_deferred`.
+- Swagger UI is available at `/docs` using the checked-in OpenAPI spec in `openapi.yaml`.
 
 ## Local setup
 
@@ -204,3 +205,17 @@ Example response:
 - Requires bearer auth.
 - Requires the caller to be the party host.
 - Transitions a pending or accepted membership to `kicked` and reopens the party if capacity frees up.
+
+## API docs
+
+Browsable local API docs are available at:
+
+```text
+http://127.0.0.1:3000/docs
+```
+
+The source contract file is:
+
+```text
+openapi.yaml
+```

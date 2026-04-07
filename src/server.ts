@@ -1,8 +1,9 @@
-import { loadConfig } from './config.js';
+import { loadConfig, validateConfig } from './config.js';
 import { createDbAdapter } from './db.js';
 import { createApp } from './app.js';
 
 const config = loadConfig();
+validateConfig(config);
 const db = createDbAdapter(config.databaseUrl);
 const app = await createApp(config, db);
 
@@ -19,4 +20,3 @@ try {
     await db.close();
   }
 }
-

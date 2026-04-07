@@ -7,6 +7,9 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc -p tsconfig.json",
     "check": "tsc --noEmit -p tsconfig.json",
+    "dev:web": "npm --prefix apps/web run dev",
+    "build:web": "npm --prefix apps/web run build",
+    "check:web": "npm --prefix apps/web run check",
     "check:tests": "tsc --noEmit -p tsconfig.test.json",
     "test:integration": "node --import tsx --test test/**/*.test.ts",
     "start": "node dist/server.js"

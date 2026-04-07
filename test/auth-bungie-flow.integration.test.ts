@@ -1,11 +1,17 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import type { OutgoingHttpHeaders } from 'node:http';
 import test from 'node:test';
 
 import { createApp } from '../src/app.js';
 import type { AppServices } from '../src/app.js';
 import type { AppConfig } from '../src/config.js';
 import { loadConfig } from '../src/config.js';
+import {
+  WEB_ACCESS_COOKIE_NAME,
+  WEB_CSRF_COOKIE_NAME,
+  WEB_REFRESH_COOKIE_NAME
+} from '../src/cookies.js';
 import { createDbAdapter } from '../src/db.js';
 import type { AppSessionResponse, BungieStartResponse } from '../src/types.js';
 import {
@@ -81,8 +87,10 @@ function buildIntegrationConfig(loadedConfig: AppConfig, databaseUrl: string): A
     bungieClientId: loadedConfig.bungieClientId ?? 'test-client-id',
     bungieClientSecret: loadedConfig.bungieClientSecret ?? 'test-client-secret',
     bungieApiKey: loadedConfig.bungieApiKey ?? 'test-api-key',
-    bungieRedirectUri: loadedConfig.bungieRedirectUri ?? 'https://api.example.test/auth/bungie/callback',
-    appUniversalLinkBase: loadedConfig.appUniversalLinkBase ?? 'https://app.example.test',
+    bungieRedirectUri: 'https://api.example.test/auth/bungie/callback',
+    appUniversalLinkBase: 'https://app.example.test',
+    webAppBaseUrl: 'https://app.example.test/app/',
+    sessionCookieDomain: undefined,
     appSessionSecret: loadedConfig.appSessionSecret ?? 'integration-test-session-secret'
   };
 }
@@ -237,6 +245,34 @@ async function startNativeLogin(context: AuthTestContext): Promise<{ loginId: st
   };
 }
 
+async function startWebLogin(context: AuthTestContext): Promise<{ loginId: string; oauthState: string; authorizeUrl: URL }> {
+  const startResponse = await context.app.inject({
+    method: 'POST',
+    url: '/auth/bungie/start',
+    payload: {
+      redirectMode: 'web',
+      returnTo: '/app'
+    }
+  });
+
+  assert.equal(startResponse.statusCode, 200);
+  const body = startResponse.json() as BungieStartResponse;
+  assert.ok(body.loginId);
+  assert.ok(body.authorizeUrl);
+
+  const authorizeUrl = new URL(body.authorizeUrl);
+  const oauthState = authorizeUrl.searchParams.get('state');
+  if (!oauthState) {
+    throw new Error('authorizeUrl is missing the OAuth state parameter');
+  }
+
+  return {
+    loginId: body.loginId,
+    oauthState,
+    authorizeUrl
+  };
+}
+
 async function runCallback(context: AuthTestContext, state: string): Promise<{ redirectUrl: URL; ticket: string }> {
   const callbackResponse = await context.app.inject({
     method: 'GET',
@@ -261,6 +297,43 @@ async function runCallback(context: AuthTestContext, state: string): Promise<{ r
     redirectUrl,
     ticket
   };
+}
+
+function getSetCookieHeaders(headers: OutgoingHttpHeaders): string[] {
+  const header = headers['set-cookie'];
+
+  if (!header) {
+    return [];
+  }
+
+  if (Array.isArray(header)) {
+    return header.filter((value): value is string => typeof value === 'string');
+  }
+
+  return typeof header === 'string' ? [header] : [];
+}
+
+function extractCookieValue(setCookieHeaders: string[], cookieName: string): string {
+  for (const header of setCookieHeaders) {
+    const [cookiePair] = header.split(';');
+    if (!cookiePair) {
+      continue;
+    }
+
+    const separatorIndex = cookiePair.indexOf('=');
+    if (separatorIndex === -1) {
+      continue;
+    }
+
+    const name = cookiePair.slice(0, separatorIndex);
+    if (name !== cookieName) {
+      continue;
+    }
+
+    return decodeURIComponent(cookiePair.slice(separatorIndex + 1));
+  }
+
+  throw new Error(`Cookie ${cookieName} is missing from the response`);
 }
 
 test('integration: Bungie start, callback, and handoff consume create a usable app session', async () => {
@@ -450,6 +523,12 @@ test('integration: Bungie start, callback, and handoff consume create a usable a
     assert.equal(meResponse.statusCode, 200);
     const meBody = meResponse.json() as {
       userId: string;
+      profile: {
+        primaryDisplayName: string;
+        bungieDisplayName: string | null;
+        bungieGlobalDisplayName: string | null;
+        bungieGlobalDisplayNameCode: number | null;
+      };
       bungie: {
         membershipId: string | null;
         displayName: string | null;
@@ -461,10 +540,33 @@ test('integration: Bungie start, callback, and handoff consume create a usable a
         membershipId: string | null;
         verified: boolean;
       };
+      capabilities: {
+        canCreateParty: boolean;
+        canUsePwaPartyWrites: boolean;
+        canUsePwaBungieResync: boolean;
+      };
+      pwa: {
+        appBasePath: string;
+        loginPath: string;
+        callbackSuccessPath: string;
+        callbackErrorPath: string;
+        sessionPath: string;
+        mePath: string;
+        resyncPath: string;
+        partiesPath: string;
+        cookieAuth: boolean;
+        csrfRequired: boolean;
+      };
       lastMembershipSyncAt: string | null;
     };
     assert.deepEqual(meBody, {
       userId: accountRow.user_id,
+      profile: {
+        primaryDisplayName: 'AuthFlowGlobal#2026',
+        bungieDisplayName: 'AuthFlowDisplay',
+        bungieGlobalDisplayName: 'AuthFlowGlobal',
+        bungieGlobalDisplayNameCode: 2026
+      },
       bungie: {
         membershipId: '800000000000123',
         displayName: 'AuthFlowDisplay',
@@ -475,6 +577,23 @@ test('integration: Bungie start, callback, and handoff consume create a usable a
       marathon: {
         membershipId: '810000000000123',
         verified: true
+      },
+      capabilities: {
+        canCreateParty: true,
+        canUsePwaPartyWrites: true,
+        canUsePwaBungieResync: true
+      },
+      pwa: {
+        appBasePath: '/app',
+        loginPath: '/app/login',
+        callbackSuccessPath: '/app/auth/callback/success',
+        callbackErrorPath: '/app/auth/callback/error',
+        sessionPath: '/auth/session',
+        mePath: '/me',
+        resyncPath: '/me/bungie/resync',
+        partiesPath: '/parties',
+        cookieAuth: true,
+        csrfRequired: true
       },
       lastMembershipSyncAt: meBody.lastMembershipSyncAt
     });
@@ -494,6 +613,225 @@ test('integration: Bungie start, callback, and handoff consume create a usable a
       error: 'handoff_ticket_used',
       message: 'Handoff ticket has already been used'
     });
+  } finally {
+    await context.close();
+  }
+});
+
+test('integration: web callback sets auth cookies and supports cookie auth on safe routes', async () => {
+  const { fetchImpl, calls } = buildSuccessfulBungieFetch(buildIntegrationConfig(loadConfig(), 'postgres://unused'));
+  const context = await createAuthTestContext({ bungieFetch: fetchImpl });
+
+  try {
+    const { loginId, oauthState } = await startWebLogin(context);
+
+    const initialLoginResult = await context.db.query<LoginTransactionRow>(
+      `
+        select
+          id::text,
+          oauth_state,
+          redirect_mode,
+          app_state,
+          platform,
+          consumed_at,
+          expires_at
+        from auth_login_transactions
+        where id = $1::uuid
+      `,
+      [loginId]
+    );
+
+    const initialLoginRow = initialLoginResult.rows[0]!;
+    assert.equal(initialLoginRow.redirect_mode, 'web');
+    assert.equal(initialLoginRow.app_state, '/app');
+    assert.equal(initialLoginRow.platform, null);
+
+    const callbackResponse = await context.app.inject({
+      method: 'GET',
+      url: `/auth/bungie/callback?code=test-auth-code&state=${encodeURIComponent(oauthState)}`,
+      headers: {
+        'user-agent': 'integration-web-auth'
+      }
+    });
+
+    assert.equal(callbackResponse.statusCode, 302);
+    const location = callbackResponse.headers.location;
+    assert.equal(location, 'https://app.example.test/app/auth/callback/success?returnTo=%2Fapp');
+
+    const setCookieHeaders = getSetCookieHeaders(callbackResponse.headers);
+    assert.ok(setCookieHeaders.length >= 3);
+    assert.ok(setCookieHeaders.some((value) => value.startsWith(`${WEB_ACCESS_COOKIE_NAME}=`) && value.includes('HttpOnly')));
+    assert.ok(setCookieHeaders.some((value) => value.startsWith(`${WEB_REFRESH_COOKIE_NAME}=`) && value.includes('HttpOnly')));
+    assert.ok(setCookieHeaders.some((value) => value.startsWith(`${WEB_CSRF_COOKIE_NAME}=`) && !value.includes('HttpOnly')));
+
+    const handoffTicketCountResult = await context.db.query<{ count: string }>(
+      `
+        select count(*)::text as count
+        from auth_handoff_tickets
+        where login_id = $1::uuid
+      `,
+      [loginId]
+    );
+
+    assert.equal(handoffTicketCountResult.rows[0]?.count, '0');
+
+    const refreshTokenResult = await context.db.query<AppRefreshTokenRow>(
+      `
+        select
+          user_id::text,
+          created_by_login_id::text,
+          user_agent
+        from app_refresh_tokens
+        where created_by_login_id = $1::uuid
+      `,
+      [loginId]
+    );
+
+    assert.equal(refreshTokenResult.rows.length, 1);
+    assert.equal(refreshTokenResult.rows[0]?.created_by_login_id, loginId);
+    assert.equal(refreshTokenResult.rows[0]?.user_agent, 'integration-web-auth');
+
+    const accessToken = extractCookieValue(setCookieHeaders, WEB_ACCESS_COOKIE_NAME);
+    const meResponse = await context.app.inject({
+      method: 'GET',
+      url: '/me',
+      headers: {
+        cookie: `${WEB_ACCESS_COOKIE_NAME}=${encodeURIComponent(accessToken)}`
+      }
+    });
+
+    assert.equal(meResponse.statusCode, 200);
+    const meBody = meResponse.json() as {
+      userId: string;
+      profile: {
+        primaryDisplayName: string;
+      };
+      capabilities: {
+        canCreateParty: boolean;
+        canUsePwaPartyWrites: boolean;
+        canUsePwaBungieResync: boolean;
+      };
+      pwa: {
+        appBasePath: string;
+        loginPath: string;
+      };
+    };
+    assert.equal(meBody.userId, refreshTokenResult.rows[0]?.user_id);
+    assert.equal(meBody.profile.primaryDisplayName, 'AuthFlowGlobal#2026');
+    assert.deepEqual(meBody.capabilities, {
+      canCreateParty: true,
+      canUsePwaPartyWrites: true,
+      canUsePwaBungieResync: true
+    });
+    assert.deepEqual(meBody.pwa, {
+      appBasePath: '/app',
+      loginPath: '/app/login',
+      callbackSuccessPath: '/app/auth/callback/success',
+      callbackErrorPath: '/app/auth/callback/error',
+      sessionPath: '/auth/session',
+      mePath: '/me',
+      resyncPath: '/me/bungie/resync',
+      partiesPath: '/parties',
+      cookieAuth: true,
+      csrfRequired: true
+    });
+
+    const csrfToken = extractCookieValue(setCookieHeaders, WEB_CSRF_COOKIE_NAME);
+    const webCookieHeader = [
+      `${WEB_ACCESS_COOKIE_NAME}=${encodeURIComponent(accessToken)}`,
+      `${WEB_CSRF_COOKIE_NAME}=${encodeURIComponent(csrfToken)}`
+    ].join('; ');
+
+    const resyncResponse = await context.app.inject({
+      method: 'POST',
+      url: '/me/bungie/resync',
+      headers: {
+        cookie: webCookieHeader,
+        'x-csrf-token': csrfToken
+      }
+    });
+
+    assert.equal(resyncResponse.statusCode, 200);
+    const resyncBody = resyncResponse.json() as {
+      userId: string;
+      profile: {
+        primaryDisplayName: string;
+      };
+      capabilities: {
+        canUsePwaPartyWrites: boolean;
+        canUsePwaBungieResync: boolean;
+      };
+    };
+    assert.equal(resyncBody.userId, refreshTokenResult.rows[0]?.user_id);
+    assert.equal(resyncBody.profile.primaryDisplayName, 'AuthFlowGlobal#2026');
+    assert.equal(resyncBody.capabilities.canUsePwaPartyWrites, true);
+    assert.equal(resyncBody.capabilities.canUsePwaBungieResync, true);
+
+    const createPartyResponse = await context.app.inject({
+      method: 'POST',
+      url: '/parties',
+      headers: {
+        cookie: webCookieHeader
+      },
+      payload: {
+        title: 'Web Auth Party',
+        activityKey: 'marathon',
+        maxSize: 3
+      }
+    });
+
+    assert.equal(createPartyResponse.statusCode, 403);
+    assert.deepEqual(createPartyResponse.json(), {
+      error: 'csrf_invalid',
+      message: 'A valid CSRF token is required'
+    });
+
+    const createWithCsrfResponse = await context.app.inject({
+      method: 'POST',
+      url: '/parties',
+      headers: {
+        cookie: webCookieHeader,
+        'x-csrf-token': csrfToken
+      },
+      payload: {
+        title: 'Web Auth Party',
+        activityKey: 'marathon',
+        maxSize: 3
+      }
+    });
+
+    assert.equal(createWithCsrfResponse.statusCode, 201);
+    assert.equal(
+      (createWithCsrfResponse.json() as { partyId: string }).partyId.length > 0,
+      true
+    );
+
+    assert.deepEqual(calls, [
+      { url: 'https://www.bungie.net/Platform/App/OAuth/token/', method: 'POST' },
+      { url: 'https://www.bungie.net/Platform/User/GetMembershipsForCurrentUser/', method: 'GET' },
+      { url: 'https://www.bungie.net/Platform/User/GetMembershipsForCurrentUser/', method: 'GET' }
+    ]);
+  } finally {
+    await context.close();
+  }
+});
+
+test('integration: web callback error redirects into the frontend error route', async () => {
+  const context = await createAuthTestContext();
+
+  try {
+    const { oauthState } = await startWebLogin(context);
+
+    const callbackResponse = await context.app.inject({
+      method: 'GET',
+      url: `/auth/bungie/callback?state=${encodeURIComponent(oauthState)}&error=access_denied&error_description=Denied`
+    });
+
+    assert.equal(callbackResponse.statusCode, 302);
+    assert.equal(
+      callbackResponse.headers.location,
+      'https://app.example.test/app/auth/callback/error?code=access_denied&returnTo=%2Fapp'
+    );
   } finally {
     await context.close();
   }

@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#111c2d">
+    <title>Marathon LFG</title>
+    <link rel="manifest" href="/app/manifest.webmanifest">
+    <link rel="icon" href="/app/icon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="/app/assets/app.css">
+  </head>
+  <body>
+    <div class="background">
+      <div class="glow glow-a"></div>
+      <div class="glow glow-b"></div>
+      <div class="grid"></div>
+    </div>
+
+    <main class="shell">
+      <header class="masthead">
+        <div>
+          <p class="eyebrow">Marathon Looking For Group</p>
+          <h1>Browser Shell</h1>
+        </div>
+        <div class="pill-group">
+          <span class="pill">PWA pivot</span>
+          <span class="pill pill-muted">cookie auth</span>
+        </div>
+      </header>
+
+      <section id="app" class="panel" aria-live="polite">
+        <div class="panel-body">
+          <p class="status-line">Loading shell...</p>
+        </div>
+      </section>
+
+      <section class="panel panel-secondary">
+        <div class="panel-header">
+          <h2>Current Scope</h2>
+        </div>
+        <div class="panel-body">
+          <ul class="scope-list">
+            <li>Login, callback completion, bootstrap, and logout are wired for the web path.</li>
+            <li>`/me` is the main authenticated bootstrap payload for the shell.</li>
+            <li>Cookie-authenticated party create, join, leave, cancel, host moderation, and Bungie resync now run with CSRF protection.</li>
+            <li>Swagger UI is available at `/docs` and reads `/openapi.yaml`.</li>
+          </ul>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="/app/assets/app.js"></script>
+  </body>
+</html>

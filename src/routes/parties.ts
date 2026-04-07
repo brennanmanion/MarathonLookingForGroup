@@ -147,7 +147,9 @@ export async function registerPartyRoutes(app: FastifyInstance, deps: { config: 
       body: createPartyBodySchema
     }
   }, async (request, reply) => {
-    const user = await requireCurrentUser(request, deps.db, deps.config);
+    const user = await requireCurrentUser(request, deps.db, deps.config, {
+      allowCookieMutation: true
+    });
     const result = await createParty(deps.db, user, request.body);
     return reply.code(201).send(result);
   });
@@ -174,7 +176,9 @@ export async function registerPartyRoutes(app: FastifyInstance, deps: { config: 
       body: updatePartyBodySchema
     }
   }, async (request) => {
-    await requireCurrentUser(request, deps.db, deps.config);
+    await requireCurrentUser(request, deps.db, deps.config, {
+      allowCookieMutation: true
+    });
     return partyEditDeferred();
   });
   app.post<{ Params: { partyId: string }; Body: { noteToHost?: string } }>('/parties/:partyId/join', {
@@ -183,7 +187,9 @@ export async function registerPartyRoutes(app: FastifyInstance, deps: { config: 
       body: joinPartyBodySchema
     }
   }, async (request, reply) => {
-    const user = await requireCurrentUser(request, deps.db, deps.config);
+    const user = await requireCurrentUser(request, deps.db, deps.config, {
+      allowCookieMutation: true
+    });
     const result = await joinParty(deps.db, user, request.params.partyId, request.body?.noteToHost);
     return reply.code(200).send(result);
   });
@@ -193,7 +199,9 @@ export async function registerPartyRoutes(app: FastifyInstance, deps: { config: 
       params: partyParamsSchema
     }
   }, async (request, reply) => {
-    const user = await requireCurrentUser(request, deps.db, deps.config);
+    const user = await requireCurrentUser(request, deps.db, deps.config, {
+      allowCookieMutation: true
+    });
     const result = await leaveParty(deps.db, user, request.params.partyId);
     return reply.code(200).send(result);
   });
@@ -203,7 +211,9 @@ export async function registerPartyRoutes(app: FastifyInstance, deps: { config: 
       params: partyParamsSchema
     }
   }, async (request, reply) => {
-    const user = await requireCurrentUser(request, deps.db, deps.config);
+    const user = await requireCurrentUser(request, deps.db, deps.config, {
+      allowCookieMutation: true
+    });
     const result = await cancelParty(deps.db, user, request.params.partyId);
     return reply.code(200).send(result);
   });
@@ -212,7 +222,9 @@ export async function registerPartyRoutes(app: FastifyInstance, deps: { config: 
       params: memberActionParamsSchema
     }
   }, async (request, reply) => {
-    const user = await requireCurrentUser(request, deps.db, deps.config);
+    const user = await requireCurrentUser(request, deps.db, deps.config, {
+      allowCookieMutation: true
+    });
     const result = await acceptPartyMember(deps.db, user, request.params.partyId, request.params.memberId);
     return reply.code(200).send(result);
   });
@@ -222,7 +234,9 @@ export async function registerPartyRoutes(app: FastifyInstance, deps: { config: 
       params: memberActionParamsSchema
     }
   }, async (request, reply) => {
-    const user = await requireCurrentUser(request, deps.db, deps.config);
+    const user = await requireCurrentUser(request, deps.db, deps.config, {
+      allowCookieMutation: true
+    });
     const result = await declinePartyMember(deps.db, user, request.params.partyId, request.params.memberId);
     return reply.code(200).send(result);
   });
@@ -232,7 +246,9 @@ export async function registerPartyRoutes(app: FastifyInstance, deps: { config: 
       params: memberActionParamsSchema
     }
   }, async (request, reply) => {
-    const user = await requireCurrentUser(request, deps.db, deps.config);
+    const user = await requireCurrentUser(request, deps.db, deps.config, {
+      allowCookieMutation: true
+    });
     const result = await kickPartyMember(deps.db, user, request.params.partyId, request.params.memberId);
     return reply.code(200).send(result);
   });

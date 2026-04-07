@@ -4,9 +4,11 @@ import type { AppConfig } from './config.js';
 import type { DbAdapter } from './db.js';
 import { isAppError } from './errors.js';
 import { registerAuthRoutes } from './routes/auth.js';
+import { registerDocsRoutes } from './routes/docs.js';
 import { registerHealthRoutes } from './routes/health.js';
 import { registerMeRoutes } from './routes/me.js';
 import { registerPartyRoutes } from './routes/parties.js';
+import { registerWebRoutes } from './routes/web.js';
 
 export interface AppServices {
   bungieFetch?: typeof fetch;
@@ -39,9 +41,11 @@ export async function createApp(config: AppConfig, db: DbAdapter | null, service
   });
 
   await registerHealthRoutes(app);
+  await registerDocsRoutes(app);
   await registerAuthRoutes(app, services.bungieFetch ? { config, db, bungieFetch: services.bungieFetch } : { config, db });
-  await registerMeRoutes(app, { config, db });
+  await registerMeRoutes(app, services.bungieFetch ? { config, db, bungieFetch: services.bungieFetch } : { config, db });
   await registerPartyRoutes(app, { config, db });
+  await registerWebRoutes(app);
 
   return app;
 }

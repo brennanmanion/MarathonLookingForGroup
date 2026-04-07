@@ -1,0 +1,54 @@
+Pivot backend to same-origin PWA auth and scaffold React web client
+
+Shift the project from the earlier native-handoff-first browser shell
+toward a proper same-origin PWA path while preserving the working Bungie
+OAuth backend and party flows.
+
+Summary
+- add same-origin web auth mode with cookie-backed sessions
+- add cookie refresh/logout/session bootstrap endpoints
+- make /me the PWA bootstrap payload
+- enable cookie-authenticated party writes with route-level CSRF
+- expose Swagger/OpenAPI docs for the backend contract
+- scaffold a React + TypeScript + Vite frontend in apps/web
+- serve the built web app from /app with a legacy fallback when the
+  frontend has not been built yet
+
+Backend changes
+- support Bungie web callback completion into secure browser cookies
+- add GET /auth/session
+- add cookie-based POST /auth/refresh
+- add cookie-based POST /auth/logout
+- keep native handoff auth working during the pivot
+- allow cookie-authenticated /me, /me/bungie/resync, party create/join/
+  leave/cancel, and host accept/decline/kick with CSRF enforcement
+- include host-only member rosters on party detail
+- add production config validation for same-origin HTTPS deployment
+
+Frontend changes
+- add a real apps/web package using React, TypeScript, Vite, React Router,
+  and TanStack Query
+- scaffold routes for login, callback success/error, party feed, party
+  detail, create party, and profile
+- centralize browser API access with credentials: include and CSRF header
+  handling
+- add one-time refresh-on-auth_expired behavior for protected requests
+
+Docs and planning
+- add and serve openapi.yaml and Swagger UI
+- document same-origin PWA production assumptions
+- add planning notes for frontend architecture, future backlog, and resume
+  state
+
+Verification
+- npm run check
+- npm run check:tests
+- npm run build
+- npm run test:integration
+- npm --prefix apps/web run check
+- npm --prefix apps/web run build
+
+Notes
+- PATCH /parties/:partyId remains deferred
+- the repo was already on the pwa pivot branch; this commit captures the
+  web-session pivot plus the first React/Vite client scaffold

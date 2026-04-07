@@ -89,6 +89,19 @@ interface MembershipSummaryRow {
   created_at: string;
 }
 
+interface PartyMemberViewRow {
+  member_id: string;
+  user_id: string;
+  status: PartyMemberStatus;
+  note_to_host: string | null;
+  joined_at: string | null;
+  responded_at: string | null;
+  created_at: string;
+  bungie_display_name: string | null;
+  bungie_global_display_name: string | null;
+  bungie_global_display_name_code: number | null;
+}
+
 interface PartyTag {
   tagKey: string;
   tagValue: string | null;
@@ -101,6 +114,19 @@ interface PartyMembershipSummary {
   joinedAt: string | null;
   respondedAt: string | null;
   createdAt: string;
+}
+
+export interface PartyMemberView {
+  memberId: string;
+  userId: string;
+  status: PartyMemberStatus;
+  noteToHost: string | null;
+  joinedAt: string | null;
+  respondedAt: string | null;
+  createdAt: string;
+  bungieDisplayName: string | null;
+  globalDisplayName: string | null;
+  globalDisplayNameCode: number | null;
 }
 
 export interface PartyView {
@@ -134,6 +160,7 @@ export interface PartyView {
   };
   tags: PartyTag[];
   myMembership: PartyMembershipSummary | null;
+  members: PartyMemberView[];
 }
 
 interface PartyMutationResult {
@@ -196,7 +223,8 @@ function mapMembership(row: MembershipSummaryRow | undefined): PartyMembershipSu
 function mapPartyView(
   row: PartyViewRow,
   tags: PartyTag[],
-  membership: MembershipSummaryRow | undefined
+  membership: MembershipSummaryRow | undefined,
+  members: PartyMemberView[]
 ): PartyView {
   return {
     partyId: row.id,
@@ -228,7 +256,23 @@ function mapPartyView(
       globalDisplayNameCode: row.host_bungie_global_display_name_code
     },
     tags,
-    myMembership: mapMembership(membership)
+    myMembership: mapMembership(membership),
+    members
+  };
+}
+
+function mapPartyMemberView(row: PartyMemberViewRow): PartyMemberView {
+  return {
+    memberId: row.member_id,
+    userId: row.user_id,
+    status: row.status,
+    noteToHost: row.note_to_host,
+    joinedAt: row.joined_at,
+    respondedAt: row.responded_at,
+    createdAt: row.created_at,
+    bungieDisplayName: row.bungie_display_name,
+    globalDisplayName: row.bungie_global_display_name,
+    globalDisplayNameCode: row.bungie_global_display_name_code
   };
 }
 
@@ -312,7 +356,55 @@ async function buildPartyViews(
     ? await loadLatestMembershipSummaries(client, viewerUserId, partyIds)
     : new Map<string, MembershipSummaryRow>();
 
-  return rows.map((row) => mapPartyView(row, tagsByParty.get(row.id) ?? [], membershipsByParty.get(row.id)));
+  return rows.map((row) => mapPartyView(row, tagsByParty.get(row.id) ?? [], membershipsByParty.get(row.id), []));
+}
+
+async function loadPartyMembers(
+  client: Queryable,
+  partyId: string,
+  hostUserId: string
+): Promise<PartyMemberView[]> {
+  const result = await client.query<PartyMemberViewRow>(
+    `
+      select
+        latest.member_id,
+        latest.user_id,
+        latest.status,
+        latest.note_to_host,
+        latest.joined_at,
+        latest.responded_at,
+        latest.created_at,
+        ba.bungie_display_name,
+        ba.bungie_global_display_name,
+        ba.bungie_global_display_name_code
+      from (
+        select distinct on (pm.user_id)
+          pm.id::text as member_id,
+          pm.user_id::text,
+          pm.status,
+          pm.note_to_host,
+          pm.joined_at::text,
+          pm.responded_at::text,
+          pm.created_at::text
+        from party_members pm
+        where pm.party_id = $1
+          and pm.user_id <> $2
+          and pm.status in ('pending', 'accepted')
+        order by pm.user_id, pm.created_at desc, pm.id desc
+      ) latest
+      left join bungie_accounts ba on ba.user_id::text = latest.user_id
+      order by
+        case latest.status
+          when 'pending' then 0
+          else 1
+        end,
+        latest.created_at asc,
+        latest.member_id asc
+    `,
+    [partyId, hostUserId]
+  );
+
+  return result.rows.map(mapPartyMemberView);
 }
 
 export async function createParty(
@@ -687,12 +779,23 @@ export async function getParty(
     throw new AppError(404, 'party_not_found', 'Party not found');
   }
 
-  const [party] = await buildPartyViews(database, [row], viewer?.userId);
-  if (!party) {
-    throw new AppError(500, 'party_load_failed', 'Unable to load party');
-  }
+  const [tagsByParty, membershipsByParty] = await Promise.all([
+    loadPartyTags(database, [row.id]),
+    viewer?.userId
+      ? loadLatestMembershipSummaries(database, viewer.userId, [row.id])
+      : Promise.resolve(new Map<string, MembershipSummaryRow>())
+  ]);
 
-  return party;
+  const members = viewer?.userId === row.host_user_id
+    ? await loadPartyMembers(database, row.id, row.host_user_id)
+    : [];
+
+  return mapPartyView(
+    row,
+    tagsByParty.get(row.id) ?? [],
+    membershipsByParty.get(row.id),
+    members
+  );
 }
 
 export async function joinParty(

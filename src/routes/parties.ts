@@ -14,6 +14,7 @@ import {
 import type { AppConfig } from '../config.js';
 import type { DbAdapter } from '../db.js';
 import { AppError } from '../errors.js';
+import type { PartyEventBus, PartyRealtimeEventType } from '../party-events.js';
 import type { CreatePartyBody, UpdatePartyBody } from '../types.js';
 import { findOptionalCurrentUser, requireCurrentUser } from '../users.js';
 
@@ -141,7 +142,90 @@ const partyParamsSchema = {
   }
 } as const;
 
-export async function registerPartyRoutes(app: FastifyInstance, deps: { config: AppConfig; db: DbAdapter | null }): Promise<void> {
+function requirePartyDb(db: DbAdapter | null): DbAdapter {
+  if (!db) {
+    throw new AppError(503, 'db_unavailable', 'DATABASE_URL is not configured');
+  }
+
+  return db;
+}
+
+async function loadPartyHostUserId(db: DbAdapter | null, partyId: string): Promise<string> {
+  const database = requirePartyDb(db);
+  const result = await database.query<{ host_user_id: string }>(
+    `
+      select host_user_id::text
+      from parties
+      where id = $1
+      limit 1
+    `,
+    [partyId]
+  );
+
+  const row = result.rows[0];
+  if (!row) {
+    throw new AppError(404, 'party_not_found', 'Party not found');
+  }
+
+  return row.host_user_id;
+}
+
+async function loadPartyMemberUserId(db: DbAdapter | null, partyId: string, memberId: string): Promise<string> {
+  const database = requirePartyDb(db);
+  const result = await database.query<{ user_id: string }>(
+    `
+      select user_id::text
+      from party_members
+      where party_id = $1
+        and id = $2
+      limit 1
+    `,
+    [partyId, memberId]
+  );
+
+  const row = result.rows[0];
+  if (!row) {
+    throw new AppError(404, 'party_member_not_found', 'Party membership was not found');
+  }
+
+  return row.user_id;
+}
+
+async function loadActivePartyMemberUserIds(db: DbAdapter | null, partyId: string): Promise<string[]> {
+  const database = requirePartyDb(db);
+  const result = await database.query<{ user_id: string }>(
+    `
+      select distinct user_id::text
+      from party_members
+      where party_id = $1
+        and status in ('pending', 'accepted')
+    `,
+    [partyId]
+  );
+
+  return result.rows.map((row) => row.user_id);
+}
+
+function publishPartyEvent(
+  deps: { partyEvents: PartyEventBus },
+  input: {
+    recipients: string[];
+    type: PartyRealtimeEventType;
+    partyId: string;
+    actorUserId: string;
+  }
+): void {
+  deps.partyEvents.publishToUsers(input.recipients, {
+    type: input.type,
+    partyId: input.partyId,
+    actorUserId: input.actorUserId
+  });
+}
+
+export async function registerPartyRoutes(
+  app: FastifyInstance,
+  deps: { config: AppConfig; db: DbAdapter | null; partyEvents: PartyEventBus }
+): Promise<void> {
   app.post<{ Body: CreatePartyBody }>('/parties', {
     schema: {
       body: createPartyBodySchema
@@ -190,7 +274,16 @@ export async function registerPartyRoutes(app: FastifyInstance, deps: { config: 
     const user = await requireCurrentUser(request, deps.db, deps.config, {
       allowCookieMutation: true
     });
+    const hostUserId = await loadPartyHostUserId(deps.db, request.params.partyId);
     const result = await joinParty(deps.db, user, request.params.partyId, request.body?.noteToHost);
+
+    publishPartyEvent(deps, {
+      recipients: hostUserId === user.userId ? [] : [hostUserId],
+      type: result.myStatus === 'accepted' ? 'party.join_accepted' : 'party.join_requested',
+      partyId: result.partyId,
+      actorUserId: user.userId
+    });
+
     return reply.code(200).send(result);
   });
 
@@ -202,7 +295,16 @@ export async function registerPartyRoutes(app: FastifyInstance, deps: { config: 
     const user = await requireCurrentUser(request, deps.db, deps.config, {
       allowCookieMutation: true
     });
+    const hostUserId = await loadPartyHostUserId(deps.db, request.params.partyId);
     const result = await leaveParty(deps.db, user, request.params.partyId);
+
+    publishPartyEvent(deps, {
+      recipients: hostUserId === user.userId ? [] : [hostUserId],
+      type: 'party.left',
+      partyId: result.partyId,
+      actorUserId: user.userId
+    });
+
     return reply.code(200).send(result);
   });
 
@@ -214,7 +316,16 @@ export async function registerPartyRoutes(app: FastifyInstance, deps: { config: 
     const user = await requireCurrentUser(request, deps.db, deps.config, {
       allowCookieMutation: true
     });
+    const activeMemberUserIds = await loadActivePartyMemberUserIds(deps.db, request.params.partyId);
     const result = await cancelParty(deps.db, user, request.params.partyId);
+
+    publishPartyEvent(deps, {
+      recipients: activeMemberUserIds.filter((memberUserId) => memberUserId !== user.userId),
+      type: 'party.cancelled',
+      partyId: result.partyId,
+      actorUserId: user.userId
+    });
+
     return reply.code(200).send(result);
   });
   app.post<{ Params: { partyId: string; memberId: string } }>('/parties/:partyId/members/:memberId/accept', {
@@ -225,7 +336,16 @@ export async function registerPartyRoutes(app: FastifyInstance, deps: { config: 
     const user = await requireCurrentUser(request, deps.db, deps.config, {
       allowCookieMutation: true
     });
+    const affectedUserId = await loadPartyMemberUserId(deps.db, request.params.partyId, request.params.memberId);
     const result = await acceptPartyMember(deps.db, user, request.params.partyId, request.params.memberId);
+
+    publishPartyEvent(deps, {
+      recipients: affectedUserId === user.userId ? [] : [affectedUserId],
+      type: 'party.join_accepted',
+      partyId: result.partyId,
+      actorUserId: user.userId
+    });
+
     return reply.code(200).send(result);
   });
 
@@ -237,7 +357,16 @@ export async function registerPartyRoutes(app: FastifyInstance, deps: { config: 
     const user = await requireCurrentUser(request, deps.db, deps.config, {
       allowCookieMutation: true
     });
+    const affectedUserId = await loadPartyMemberUserId(deps.db, request.params.partyId, request.params.memberId);
     const result = await declinePartyMember(deps.db, user, request.params.partyId, request.params.memberId);
+
+    publishPartyEvent(deps, {
+      recipients: affectedUserId === user.userId ? [] : [affectedUserId],
+      type: 'party.join_declined',
+      partyId: result.partyId,
+      actorUserId: user.userId
+    });
+
     return reply.code(200).send(result);
   });
 
@@ -249,7 +378,16 @@ export async function registerPartyRoutes(app: FastifyInstance, deps: { config: 
     const user = await requireCurrentUser(request, deps.db, deps.config, {
       allowCookieMutation: true
     });
+    const affectedUserId = await loadPartyMemberUserId(deps.db, request.params.partyId, request.params.memberId);
     const result = await kickPartyMember(deps.db, user, request.params.partyId, request.params.memberId);
+
+    publishPartyEvent(deps, {
+      recipients: affectedUserId === user.userId ? [] : [affectedUserId],
+      type: 'party.kicked',
+      partyId: result.partyId,
+      actorUserId: user.userId
+    });
+
     return reply.code(200).send(result);
   });
 }

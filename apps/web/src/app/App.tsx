@@ -3,6 +3,7 @@ import { BrowserRouter, Navigate, Outlet, Route, Routes } from 'react-router-dom
 
 import { queryClient } from './query-client';
 import { AuthProvider, useAuth } from './auth';
+import { LiveEventBridge } from './live-events';
 import { ToastProvider } from './toasts';
 import { ShellLayout } from '../components/shell-layout';
 import { CallbackErrorPage } from '../routes/callback-error';
@@ -78,6 +79,7 @@ export function App() {
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
         <AuthProvider>
+          <LiveEventBridge />
           <BrowserRouter basename="/app">
             <AppRoutes />
           </BrowserRouter>

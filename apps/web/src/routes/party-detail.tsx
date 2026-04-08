@@ -7,30 +7,28 @@ import type { PartyMemberView, PartyView } from '../api/types';
 import { useAuth } from '../app/auth';
 import { useToast } from '../app/toasts';
 
-function formatPartyPerson(party: PartyView): string {
-  const host = party.host;
-
-  if (host.globalDisplayName) {
-    if (host.globalDisplayNameCode !== null && !host.globalDisplayName.includes('#')) {
-      return `${host.globalDisplayName}#${String(host.globalDisplayNameCode).padStart(4, '0')}`;
+function formatIdentityName(input: {
+  globalDisplayName: string | null;
+  globalDisplayNameCode: number | null;
+  bungieDisplayName: string | null;
+}): string {
+  if (input.globalDisplayName) {
+    if (input.globalDisplayNameCode !== null && !input.globalDisplayName.includes('#')) {
+      return `${input.globalDisplayName}#${String(input.globalDisplayNameCode).padStart(4, '0')}`;
     }
 
-    return host.globalDisplayName;
+    return input.globalDisplayName;
   }
 
-  return host.bungieDisplayName ?? 'Unknown host';
+  return input.bungieDisplayName ?? 'Unknown guardian';
+}
+
+function formatPartyPerson(party: PartyView): string {
+  return formatIdentityName(party.host);
 }
 
 function formatMemberName(member: PartyMemberView): string {
-  if (member.globalDisplayName) {
-    if (member.globalDisplayNameCode !== null && !member.globalDisplayName.includes('#')) {
-      return `${member.globalDisplayName}#${String(member.globalDisplayNameCode).padStart(4, '0')}`;
-    }
-
-    return member.globalDisplayName;
-  }
-
-  return member.bungieDisplayName ?? member.userId;
+  return formatIdentityName(member);
 }
 
 function invalidateParty(queryClient: ReturnType<typeof useQueryClient>, partyId: string) {
@@ -139,8 +137,39 @@ export function PartyDetailPage() {
     await joinMutation.mutateAsync(note);
   }
 
+  async function copyText(value: string, successMessage: string) {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(value);
+      } else {
+        const textArea = document.createElement('textarea');
+        textArea.value = value;
+        textArea.style.position = 'fixed';
+        textArea.style.opacity = '0';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+      }
+
+      showToast({
+        kind: 'success',
+        message: successMessage
+      });
+    } catch {
+      showToast({
+        kind: 'error',
+        message: 'Unable to copy that Bungie name.'
+      });
+    }
+  }
+
   const isHost = Boolean(me && party && me.userId === party.host.userId);
   const membershipStatus = party?.myMembership?.status ?? null;
+  const approvedMembers = party?.members.filter((member) => member.status === 'accepted') ?? [];
+  const pendingMembers = party?.members.filter((member) => member.status === 'pending') ?? [];
+  const hostInviteName = party ? formatPartyPerson(party) : null;
 
   return (
     <section className="panel">
@@ -250,24 +279,53 @@ export function PartyDetailPage() {
               ) : null}
 
               {status === 'authenticated' && !isHost && (membershipStatus === 'pending' || membershipStatus === 'accepted') ? (
-                <div className="button-row">
-                  <span className="badge badge-warning">Your status: {membershipStatus}</span>
-                  <button className="button button-danger" type="button" onClick={() => void leaveMutation.mutateAsync()}>
-                    Leave party
-                  </button>
+                <div className="stack">
+                  <div className="button-row">
+                    <span className={membershipStatus === 'accepted' ? 'badge badge-positive' : 'badge badge-warning'}>
+                      Your status: {membershipStatus}
+                    </span>
+                    <button className="button button-danger" type="button" onClick={() => void leaveMutation.mutateAsync()}>
+                      Leave party
+                    </button>
+                  </div>
+                  {membershipStatus === 'pending' ? (
+                    <article className="notice">
+                      <p className="meta">
+                        Your request is pending. Full Bungie names stay masked until the host approves you.
+                      </p>
+                    </article>
+                  ) : null}
+                  {membershipStatus === 'accepted' && hostInviteName ? (
+                    <article className="guide-card">
+                      <p className="route-tag">Next step</p>
+                      <h3 className="card-title">You are approved</h3>
+                      <p className="meta">
+                        The app cannot complete the in-game Marathon crew invite for you. Use the host Bungie name below and finish the crew step manually in game.
+                      </p>
+                      <div className="copy-row">
+                        <code className="copy-code">{hostInviteName}</code>
+                        <button className="button button-secondary" type="button" onClick={() => void copyText(hostInviteName, 'Host Bungie name copied.')}>
+                          Copy host Bungie name
+                        </button>
+                      </div>
+                      <ol className="guide-list">
+                        <li>Open Marathon and find the host using the Bungie name above.</li>
+                        <li>Send the friend, crew, or join step manually in game.</li>
+                        <li>Return here if the party changes or the host cancels.</li>
+                      </ol>
+                    </article>
+                  ) : null}
                 </div>
               ) : null}
             </article>
 
             {isHost ? (
-              <article className="card">
-                <p className="route-tag">Host moderation</p>
-                <h2 className="card-title">Member roster</h2>
-                <div className="member-list">
-                  {party.members.length ? party.members.map((member) => {
-                    const isPending = member.status === 'pending';
-
-                    return (
+              <div className="stack">
+                <article className="card">
+                  <p className="route-tag">Host moderation</p>
+                  <h2 className="card-title">Pending requests</h2>
+                  <div className="member-list">
+                    {pendingMembers.length ? pendingMembers.map((member) => (
                       <article className="member-item" key={member.memberId}>
                         <div className="member-header">
                           <div>
@@ -275,27 +333,21 @@ export function PartyDetailPage() {
                             <p className="meta">User {member.userId}</p>
                             {member.noteToHost ? <p className="meta">Note: {member.noteToHost}</p> : null}
                           </div>
-                          <span className={isPending ? 'badge badge-warning' : 'badge badge-positive'}>
-                            {member.status}
-                          </span>
+                          <span className="badge badge-warning">{member.status}</span>
                         </div>
                         <div className="member-actions">
-                          {isPending ? (
-                            <>
-                              <button className="button" type="button" onClick={() => void moderationMutation.mutateAsync({
-                                memberId: member.memberId,
-                                action: 'accept'
-                              })}>
-                                Accept
-                              </button>
-                              <button className="button button-secondary" type="button" onClick={() => void moderationMutation.mutateAsync({
-                                memberId: member.memberId,
-                                action: 'decline'
-                              })}>
-                                Decline
-                              </button>
-                            </>
-                          ) : null}
+                          <button className="button" type="button" onClick={() => void moderationMutation.mutateAsync({
+                            memberId: member.memberId,
+                            action: 'accept'
+                          })}>
+                            Accept
+                          </button>
+                          <button className="button button-secondary" type="button" onClick={() => void moderationMutation.mutateAsync({
+                            memberId: member.memberId,
+                            action: 'decline'
+                          })}>
+                            Decline
+                          </button>
                           <button className="button button-danger" type="button" onClick={() => void moderationMutation.mutateAsync({
                             memberId: member.memberId,
                             action: 'kick'
@@ -304,10 +356,52 @@ export function PartyDetailPage() {
                           </button>
                         </div>
                       </article>
-                    );
-                  }) : <p className="meta">No pending or accepted members yet.</p>}
-                </div>
-              </article>
+                    )) : <p className="meta">No pending requests right now.</p>}
+                  </div>
+                </article>
+
+                <article className="card">
+                  <p className="route-tag">Approved players</p>
+                  <h2 className="card-title">Manual invite step</h2>
+                  <p className="meta">
+                    The app cannot send the final in-game Marathon crew invite through the public API. Once a player is approved, use their Bungie name below and finish the invite manually in game.
+                  </p>
+                  <ol className="guide-list">
+                    <li>Approve the player here.</li>
+                    <li>Copy their Bungie name.</li>
+                    <li>Find and invite them manually in Marathon.</li>
+                  </ol>
+                  <div className="member-list">
+                    {approvedMembers.length ? approvedMembers.map((member) => {
+                      const displayName = formatMemberName(member);
+
+                      return (
+                        <article className="member-item" key={member.memberId}>
+                          <div className="member-header">
+                            <div>
+                              <h3 className="member-name">{displayName}</h3>
+                              <p className="meta">User {member.userId}</p>
+                            </div>
+                            <span className="badge badge-positive">{member.status}</span>
+                          </div>
+                          <div className="copy-row">
+                            <code className="copy-code">{displayName}</code>
+                            <button className="button button-secondary" type="button" onClick={() => void copyText(displayName, 'Approved player Bungie name copied.')}>
+                              Copy Bungie name
+                            </button>
+                            <button className="button button-danger" type="button" onClick={() => void moderationMutation.mutateAsync({
+                              memberId: member.memberId,
+                              action: 'kick'
+                            })}>
+                              Remove
+                            </button>
+                          </div>
+                        </article>
+                      );
+                    }) : <p className="meta">No approved players yet.</p>}
+                  </div>
+                </article>
+              </div>
             ) : null}
           </>
         ) : null}

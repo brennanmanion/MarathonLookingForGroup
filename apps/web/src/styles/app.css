@@ -428,6 +428,42 @@ a {
   gap: 0.6rem;
 }
 
+.guide-card {
+  display: grid;
+  gap: 0.9rem;
+  border: 1px solid rgba(126, 240, 195, 0.26);
+  border-radius: var(--radius-small);
+  padding: 1rem;
+  background: rgba(126, 240, 195, 0.07);
+}
+
+.guide-list {
+  margin: 0;
+  padding-left: 1.25rem;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.copy-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.copy-code {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.8rem;
+  padding: 0.7rem 0.9rem;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: rgba(6, 11, 18, 0.72);
+  color: var(--ink);
+  font-family: "SFMono-Regular", "Menlo", "Monaco", "Liberation Mono", monospace;
+  word-break: break-word;
+}
+
 .form-grid {
   display: grid;
   gap: 0.85rem;

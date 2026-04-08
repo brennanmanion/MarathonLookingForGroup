@@ -746,7 +746,14 @@ export async function listParties(
       join party_capacity pc on pc.party_id = p.id
       left join bungie_accounts ba on ba.user_id = p.host_user_id
       where ${visibilitySql}
-      order by p.created_at desc, p.id desc
+      order by
+        case p.status
+          when 'open' then 0
+          when 'full' then 1
+          else 2
+        end,
+        p.created_at desc,
+        p.id desc
     `,
     params
   );

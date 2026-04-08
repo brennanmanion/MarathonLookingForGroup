@@ -309,3 +309,127 @@ test('integration: host Bungie code stays hidden until a member is accepted', as
     await dropIsolatedDatabase(loadedConfig.databaseUrl, databaseName);
   }
 });
+
+test('integration: party list sorts open parties ahead of full parties', async () => {
+  const loadedConfig = loadConfig();
+  assert.ok(loadedConfig.databaseUrl, 'DATABASE_URL must be configured to run integration tests');
+
+  const databaseName = buildTestDatabaseName();
+  const isolatedDatabaseUrl = buildDatabaseUrl(loadedConfig.databaseUrl, databaseName);
+  let app: Awaited<ReturnType<typeof createApp>> | undefined;
+
+  await createIsolatedDatabase(loadedConfig.databaseUrl, databaseName);
+
+  try {
+    await applyMigration(isolatedDatabaseUrl);
+    await seedVerifiedUser(isolatedDatabaseUrl, {
+      userId: HOST_USER_ID,
+      bungieMembershipId: '960000000000001',
+      marathonMembershipId: '970000000000001',
+      displayName: 'HostSort',
+      displayNameCode: 1111
+    });
+    await seedVerifiedUser(isolatedDatabaseUrl, {
+      userId: MEMBER_USER_ID,
+      bungieMembershipId: '960000000000002',
+      marathonMembershipId: '970000000000002',
+      displayName: 'MemberSort',
+      displayNameCode: 2222
+    });
+
+    const config = buildTestConfig(loadedConfig, isolatedDatabaseUrl);
+    const db = createDbAdapter(config.databaseUrl);
+    assert.ok(db, 'Database adapter should be created for integration tests');
+
+    app = await createApp(config, db);
+    await app.ready();
+
+    const hostBearer = issueAccessToken(config, HOST_USER_ID).token;
+    const memberBearer = issueAccessToken(config, MEMBER_USER_ID).token;
+
+    const openPartyResponse = await app.inject({
+      method: 'POST',
+      url: '/parties',
+      headers: {
+        authorization: `Bearer ${hostBearer}`
+      },
+      payload: {
+        title: 'Open party first in feed',
+        activityKey: 'marathon',
+        maxSize: 3
+      }
+    });
+
+    assert.equal(openPartyResponse.statusCode, 201);
+    const openPartyId = (openPartyResponse.json() as { partyId: string }).partyId;
+
+    const fullPartyResponse = await app.inject({
+      method: 'POST',
+      url: '/parties',
+      headers: {
+        authorization: `Bearer ${hostBearer}`
+      },
+      payload: {
+        title: 'Full party later in feed',
+        activityKey: 'marathon',
+        maxSize: 2,
+        approvalMode: 'auto_accept'
+      }
+    });
+
+    assert.equal(fullPartyResponse.statusCode, 201);
+    const fullPartyId = (fullPartyResponse.json() as { partyId: string }).partyId;
+
+    const fillResponse = await app.inject({
+      method: 'POST',
+      url: `/parties/${fullPartyId}/join`,
+      headers: {
+        authorization: `Bearer ${memberBearer}`
+      },
+      payload: {}
+    });
+
+    assert.equal(fillResponse.statusCode, 200);
+
+    const listResponse = await app.inject({
+      method: 'GET',
+      url: '/parties'
+    });
+
+    assert.equal(listResponse.statusCode, 200);
+    const listBody = listResponse.json() as {
+      items: Array<{
+        partyId: string;
+        status: string;
+        title: string;
+      }>;
+    };
+
+    const relevantItems = listBody.items.filter((item) =>
+      item.partyId === openPartyId || item.partyId === fullPartyId
+    );
+
+    assert.deepEqual(relevantItems.map((item) => ({
+      partyId: item.partyId,
+      status: item.status,
+      title: item.title
+    })), [
+      {
+        partyId: openPartyId,
+        status: 'open',
+        title: 'Open party first in feed'
+      },
+      {
+        partyId: fullPartyId,
+        status: 'full',
+        title: 'Full party later in feed'
+      }
+    ]);
+  } finally {
+    if (app) {
+      await app.close();
+    }
+
+    await dropIsolatedDatabase(loadedConfig.databaseUrl, databaseName);
+  }
+});

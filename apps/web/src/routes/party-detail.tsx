@@ -31,6 +31,17 @@ function formatMemberName(member: PartyMemberView): string {
   return formatIdentityName(member);
 }
 
+function statusBadgeClass(status: PartyView['status']): string {
+  switch (status) {
+    case 'open':
+      return 'badge badge-positive';
+    case 'full':
+      return 'badge badge-warning';
+    default:
+      return 'badge badge-muted';
+  }
+}
+
 function invalidateParty(queryClient: ReturnType<typeof useQueryClient>, partyId: string) {
   return Promise.all([
     queryClient.invalidateQueries({ queryKey: ['parties'] }),
@@ -183,7 +194,7 @@ export function PartyDetailPage() {
                 {party ? `${party.activityKey} · Host ${formatPartyPerson(party)}` : 'Loading party details.'}
               </p>
             </div>
-            <span className={party?.status === 'open' ? 'badge badge-positive' : 'badge badge-muted'}>
+            <span className={party ? statusBadgeClass(party.status) : 'badge badge-muted'}>
               {party?.status ?? 'loading'}
             </span>
           </div>
@@ -262,20 +273,30 @@ export function PartyDetailPage() {
               ) : null}
 
               {status === 'authenticated' && !isHost && membershipStatus !== 'pending' && membershipStatus !== 'accepted' ? (
-                <form className="form-grid" onSubmit={(event) => {
-                  event.preventDefault();
-                  void handleJoinSubmit(new FormData(event.currentTarget));
-                }}>
-                  <label className="field field-full">
-                    <span>Note to host</span>
-                    <textarea name="noteToHost" rows={3} placeholder="Quick note for the host." />
-                  </label>
-                  <div className="button-row">
-                    <button className="button" type="submit" disabled={joinMutation.isPending}>
-                      {joinMutation.isPending ? 'Joining...' : 'Join party'}
-                    </button>
-                  </div>
-                </form>
+                party.status === 'open' ? (
+                  <form className="form-grid" onSubmit={(event) => {
+                    event.preventDefault();
+                    void handleJoinSubmit(new FormData(event.currentTarget));
+                  }}>
+                    <label className="field field-full">
+                      <span>Note to host</span>
+                      <textarea name="noteToHost" rows={3} placeholder="Quick note for the host." />
+                    </label>
+                    <div className="button-row">
+                      <button className="button" type="submit" disabled={joinMutation.isPending}>
+                        {joinMutation.isPending ? 'Joining...' : 'Join party'}
+                      </button>
+                    </div>
+                  </form>
+                ) : (
+                  <article className="notice">
+                    <p className="meta">
+                      {party.status === 'full'
+                        ? 'This party is full right now. Watch for a slot to open or join a different group.'
+                        : 'This party is not currently open for new members.'}
+                    </p>
+                  </article>
+                )
               ) : null}
 
               {status === 'authenticated' && !isHost && (membershipStatus === 'pending' || membershipStatus === 'accepted') ? (

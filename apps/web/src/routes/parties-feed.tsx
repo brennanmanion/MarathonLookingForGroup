@@ -31,6 +31,17 @@ function describeVerification(party: PartyView): string {
   return party.requiresMarathonVerified ? 'Marathon verified required' : 'Open to unverified players';
 }
 
+function statusBadgeClass(status: PartyView['status']): string {
+  switch (status) {
+    case 'open':
+      return 'badge badge-positive';
+    case 'full':
+      return 'badge badge-warning';
+    default:
+      return 'badge badge-muted';
+  }
+}
+
 export function PartiesFeedPage() {
   const { me, status } = useAuth();
   const partiesQuery = useQuery({
@@ -89,13 +100,16 @@ export function PartiesFeedPage() {
                       {party.activityKey} · Host {formatPartyPerson(party)}
                     </p>
                   </div>
-                  <span className={party.status === 'open' ? 'badge badge-positive' : 'badge badge-muted'}>
+                  <span className={statusBadgeClass(party.status)}>
                     {party.status}
                   </span>
                 </div>
                 <div className="feed-meta">
                   <span className="badge">{formatCapacity(party)}</span>
                   <span className="badge">{describeVerification(party)}</span>
+                  {party.status === 'full' ? (
+                    <span className="badge badge-warning">Join from detail disabled until a slot opens</span>
+                  ) : null}
                   {party.myMembership ? (
                     <span className="badge badge-warning">Your status: {party.myMembership.status}</span>
                   ) : null}

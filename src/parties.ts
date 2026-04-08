@@ -116,6 +116,13 @@ interface PartyMembershipSummary {
   createdAt: string;
 }
 
+interface PartyPersonIdentity {
+  userId: string;
+  bungieDisplayName: string | null;
+  globalDisplayName: string | null;
+  globalDisplayNameCode: number | null;
+}
+
 export interface PartyMemberView {
   memberId: string;
   userId: string;
@@ -172,6 +179,24 @@ interface PartyMutationResult {
   partyStatus: string;
 }
 
+function stripBungieNameCode(value: string | null): string | null {
+  if (!value) {
+    return value;
+  }
+
+  const hashIndex = value.lastIndexOf('#');
+  if (hashIndex <= 0) {
+    return value;
+  }
+
+  const suffix = value.slice(hashIndex + 1);
+  if (!/^\d{1,4}$/.test(suffix)) {
+    return value;
+  }
+
+  return value.slice(0, hashIndex);
+}
+
 function requirePartyDb(db: DbAdapter | null): DbAdapter {
   if (!db) {
     throw new AppError(503, 'db_unavailable', 'DATABASE_URL is not configured');
@@ -220,12 +245,31 @@ function mapMembership(row: MembershipSummaryRow | undefined): PartyMembershipSu
   };
 }
 
+function mapPartyHostIdentity(
+  row: PartyViewRow,
+  revealIdentity: boolean
+): PartyPersonIdentity {
+  const globalDisplayName = revealIdentity
+    ? row.host_bungie_global_display_name
+    : stripBungieNameCode(row.host_bungie_global_display_name);
+
+  return {
+    userId: row.host_user_id,
+    bungieDisplayName: row.host_bungie_display_name,
+    globalDisplayName,
+    globalDisplayNameCode: revealIdentity ? row.host_bungie_global_display_name_code : null
+  };
+}
+
 function mapPartyView(
   row: PartyViewRow,
   tags: PartyTag[],
   membership: MembershipSummaryRow | undefined,
-  members: PartyMemberView[]
+  members: PartyMemberView[],
+  viewerUserId?: string
 ): PartyView {
+  const revealHostIdentity = row.host_user_id === viewerUserId || membership?.status === 'accepted';
+
   return {
     partyId: row.id,
     status: row.status,
@@ -249,12 +293,7 @@ function mapPartyView(
     openSlots: row.open_slots,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    host: {
-      userId: row.host_user_id,
-      bungieDisplayName: row.host_bungie_display_name,
-      globalDisplayName: row.host_bungie_global_display_name,
-      globalDisplayNameCode: row.host_bungie_global_display_name_code
-    },
+    host: mapPartyHostIdentity(row, revealHostIdentity),
     tags,
     myMembership: mapMembership(membership),
     members
@@ -356,7 +395,15 @@ async function buildPartyViews(
     ? await loadLatestMembershipSummaries(client, viewerUserId, partyIds)
     : new Map<string, MembershipSummaryRow>();
 
-  return rows.map((row) => mapPartyView(row, tagsByParty.get(row.id) ?? [], membershipsByParty.get(row.id), []));
+  return rows.map((row) =>
+    mapPartyView(
+      row,
+      tagsByParty.get(row.id) ?? [],
+      membershipsByParty.get(row.id),
+      [],
+      viewerUserId
+    )
+  );
 }
 
 async function loadPartyMembers(
@@ -794,7 +841,8 @@ export async function getParty(
     row,
     tagsByParty.get(row.id) ?? [],
     membershipsByParty.get(row.id),
-    members
+    members,
+    viewer?.userId
   );
 }
 

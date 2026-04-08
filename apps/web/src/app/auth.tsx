@@ -13,6 +13,7 @@ import { AuthExpiredError, ApiError } from '../api/client';
 import { getMe } from '../api/me';
 import type { MeResponse } from '../api/types';
 import { queryClient } from './query-client';
+import { useToast } from './toasts';
 
 type AuthStatus = 'booting' | 'anonymous' | 'authenticated' | 'error';
 
@@ -66,6 +67,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const [status, setStatus] = useState<AuthStatus>('booting');
   const [me, setMe] = useState<MeResponse | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const { showToast } = useToast();
 
   const refreshBootstrap = useCallback(async () => {
     setStatus('booting');
@@ -122,7 +124,11 @@ export function AuthProvider({ children }: PropsWithChildren) {
     setMe(null);
     setStatus('anonymous');
     setErrorMessage(null);
-  }, []);
+    showToast({
+      kind: 'success',
+      message: 'Logged out.'
+    });
+  }, [showToast]);
 
   const value = useMemo<AuthContextValue>(() => ({
     status,

@@ -4,15 +4,27 @@ import { useNavigate } from 'react-router-dom';
 import { ApiError } from '../api/client';
 import { createParty } from '../api/parties';
 import { useAuth } from '../app/auth';
+import { useToast } from '../app/toasts';
 
 export function PartyCreatePage() {
   const navigate = useNavigate();
   const { me } = useAuth();
+  const { showToast } = useToast();
 
   const mutation = useMutation({
     mutationFn: createParty,
     onSuccess: async (result) => {
+      showToast({
+        kind: 'success',
+        message: 'Party created.'
+      });
       await navigate(`/parties/${result.partyId}`);
+    },
+    onError: (error) => {
+      showToast({
+        kind: 'error',
+        message: error instanceof ApiError ? error.message : 'Unable to create party.'
+      });
     }
   });
 

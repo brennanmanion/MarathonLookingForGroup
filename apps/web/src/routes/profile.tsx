@@ -3,16 +3,28 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ApiError } from '../api/client';
 import { resyncBungie } from '../api/me';
 import { useAuth } from '../app/auth';
+import { useToast } from '../app/toasts';
 
 export function ProfilePage() {
   const queryClient = useQueryClient();
   const { me, refreshBootstrap, logoutUser } = useAuth();
+  const { showToast } = useToast();
 
   const resyncMutation = useMutation({
     mutationFn: resyncBungie,
     onSuccess: async (payload) => {
       queryClient.setQueryData(['me'], payload);
       await refreshBootstrap();
+      showToast({
+        kind: 'success',
+        message: 'Bungie account resynced.'
+      });
+    },
+    onError: (error) => {
+      showToast({
+        kind: 'error',
+        message: error instanceof ApiError ? error.message : 'Unable to resync Bungie account.'
+      });
     }
   });
 

@@ -170,3 +170,142 @@ test('integration: cookie-authenticated safe reads support party list and detail
     await dropIsolatedDatabase(loadedConfig.databaseUrl, databaseName);
   }
 });
+
+test('integration: host Bungie code stays hidden until a member is accepted', async () => {
+  const loadedConfig = loadConfig();
+  assert.ok(loadedConfig.databaseUrl, 'DATABASE_URL must be configured to run integration tests');
+
+  const databaseName = buildTestDatabaseName();
+  const isolatedDatabaseUrl = buildDatabaseUrl(loadedConfig.databaseUrl, databaseName);
+  let app: Awaited<ReturnType<typeof createApp>> | undefined;
+
+  await createIsolatedDatabase(loadedConfig.databaseUrl, databaseName);
+
+  try {
+    await applyMigration(isolatedDatabaseUrl);
+    await seedVerifiedUser(isolatedDatabaseUrl, {
+      userId: HOST_USER_ID,
+      bungieMembershipId: '900000000000001',
+      marathonMembershipId: '910000000000001',
+      displayName: 'HostMask',
+      displayNameCode: 1111
+    });
+    await seedVerifiedUser(isolatedDatabaseUrl, {
+      userId: MEMBER_USER_ID,
+      bungieMembershipId: '900000000000002',
+      marathonMembershipId: '910000000000002',
+      displayName: 'MemberMask',
+      displayNameCode: 2222
+    });
+
+    const config = buildTestConfig(loadedConfig, isolatedDatabaseUrl);
+    const db = createDbAdapter(config.databaseUrl);
+    assert.ok(db, 'Database adapter should be created for integration tests');
+
+    app = await createApp(config, db);
+    await app.ready();
+
+    const hostBearer = issueAccessToken(config, HOST_USER_ID).token;
+    const memberBearer = issueAccessToken(config, MEMBER_USER_ID).token;
+
+    const createResponse = await app.inject({
+      method: 'POST',
+      url: '/parties',
+      headers: {
+        authorization: `Bearer ${hostBearer}`
+      },
+      payload: {
+        title: 'Masking party',
+        activityKey: 'marathon',
+        maxSize: 3
+      }
+    });
+
+    assert.equal(createResponse.statusCode, 201);
+    const { partyId } = createResponse.json() as { partyId: string };
+
+    const anonymousDetailBefore = await app.inject({
+      method: 'GET',
+      url: `/parties/${partyId}`
+    });
+
+    assert.equal(anonymousDetailBefore.statusCode, 200);
+    assert.deepEqual(anonymousDetailBefore.json().host, {
+      userId: HOST_USER_ID,
+      bungieDisplayName: 'HostMask',
+      globalDisplayName: 'HostMask',
+      globalDisplayNameCode: null
+    });
+
+    const joinResponse = await app.inject({
+      method: 'POST',
+      url: `/parties/${partyId}/join`,
+      headers: {
+        authorization: `Bearer ${memberBearer}`
+      },
+      payload: {}
+    });
+
+    assert.equal(joinResponse.statusCode, 200);
+
+    const memberSession = await db.withTransaction((client) =>
+      createAppSession(client, config, {
+        userId: MEMBER_USER_ID,
+        metadata: {
+          ip: '127.0.0.1',
+          userAgent: 'integration-party-mask-member'
+        }
+      })
+    );
+
+    const pendingDetail = await app.inject({
+      method: 'GET',
+      url: `/parties/${partyId}`,
+      headers: {
+        cookie: `${WEB_ACCESS_COOKIE_NAME}=${encodeURIComponent(memberSession.accessToken)}`
+      }
+    });
+
+    assert.equal(pendingDetail.statusCode, 200);
+    assert.deepEqual(pendingDetail.json().host, {
+      userId: HOST_USER_ID,
+      bungieDisplayName: 'HostMask',
+      globalDisplayName: 'HostMask',
+      globalDisplayNameCode: null
+    });
+
+    const pendingMembership = pendingDetail.json().myMembership as { memberId: string };
+
+    const acceptResponse = await app.inject({
+      method: 'POST',
+      url: `/parties/${partyId}/members/${pendingMembership.memberId}/accept`,
+      headers: {
+        authorization: `Bearer ${hostBearer}`
+      }
+    });
+
+    assert.equal(acceptResponse.statusCode, 200);
+
+    const acceptedDetail = await app.inject({
+      method: 'GET',
+      url: `/parties/${partyId}`,
+      headers: {
+        cookie: `${WEB_ACCESS_COOKIE_NAME}=${encodeURIComponent(memberSession.accessToken)}`
+      }
+    });
+
+    assert.equal(acceptedDetail.statusCode, 200);
+    assert.deepEqual(acceptedDetail.json().host, {
+      userId: HOST_USER_ID,
+      bungieDisplayName: 'HostMask',
+      globalDisplayName: 'HostMask',
+      globalDisplayNameCode: 1111
+    });
+  } finally {
+    if (app) {
+      await app.close();
+    }
+
+    await dropIsolatedDatabase(loadedConfig.databaseUrl, databaseName);
+  }
+});

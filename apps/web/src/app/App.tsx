@@ -3,6 +3,7 @@ import { BrowserRouter, Navigate, Outlet, Route, Routes } from 'react-router-dom
 
 import { queryClient } from './query-client';
 import { AuthProvider, useAuth } from './auth';
+import { ToastProvider } from './toasts';
 import { ShellLayout } from '../components/shell-layout';
 import { CallbackErrorPage } from '../routes/callback-error';
 import { CallbackSuccessPage } from '../routes/callback-success';
@@ -75,11 +76,13 @@ function AppRoutes() {
 export function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <BrowserRouter basename="/app">
-          <AppRoutes />
-        </BrowserRouter>
-      </AuthProvider>
+      <ToastProvider>
+        <AuthProvider>
+          <BrowserRouter basename="/app">
+            <AppRoutes />
+          </BrowserRouter>
+        </AuthProvider>
+      </ToastProvider>
     </QueryClientProvider>
   );
 }

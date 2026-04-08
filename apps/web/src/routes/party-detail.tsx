@@ -5,6 +5,7 @@ import { ApiError } from '../api/client';
 import { cancelParty, getParty, joinParty, leaveParty, moderateMember } from '../api/parties';
 import type { PartyMemberView, PartyView } from '../api/types';
 import { useAuth } from '../app/auth';
+import { useToast } from '../app/toasts';
 
 function formatPartyPerson(party: PartyView): string {
   const host = party.host;
@@ -43,6 +44,7 @@ function invalidateParty(queryClient: ReturnType<typeof useQueryClient>, partyId
 export function PartyDetailPage() {
   const { partyId = '' } = useParams();
   const { me, status } = useAuth();
+  const { showToast } = useToast();
   const queryClient = useQueryClient();
   const partyQuery = useQuery({
     queryKey: ['party', partyId],
@@ -55,8 +57,18 @@ export function PartyDetailPage() {
       partyId,
       noteToHost ? { noteToHost } : {}
     ),
-    onSuccess: async () => {
+    onSuccess: async (result) => {
       await invalidateParty(queryClient, partyId);
+      showToast({
+        kind: 'success',
+        message: result.myStatus === 'accepted' ? 'Joined party.' : 'Join request sent.'
+      });
+    },
+    onError: (error) => {
+      showToast({
+        kind: 'error',
+        message: error instanceof ApiError ? error.message : 'Unable to join party.'
+      });
     }
   });
 
@@ -64,6 +76,16 @@ export function PartyDetailPage() {
     mutationFn: () => leaveParty(partyId),
     onSuccess: async () => {
       await invalidateParty(queryClient, partyId);
+      showToast({
+        kind: 'success',
+        message: 'You left the party.'
+      });
+    },
+    onError: (error) => {
+      showToast({
+        kind: 'error',
+        message: error instanceof ApiError ? error.message : 'Unable to leave party.'
+      });
     }
   });
 
@@ -71,14 +93,39 @@ export function PartyDetailPage() {
     mutationFn: () => cancelParty(partyId),
     onSuccess: async () => {
       await invalidateParty(queryClient, partyId);
+      showToast({
+        kind: 'success',
+        message: 'Party cancelled.'
+      });
+    },
+    onError: (error) => {
+      showToast({
+        kind: 'error',
+        message: error instanceof ApiError ? error.message : 'Unable to cancel party.'
+      });
     }
   });
 
   const moderationMutation = useMutation({
     mutationFn: ({ memberId, action }: { memberId: string; action: 'accept' | 'decline' | 'kick' }) =>
       moderateMember(partyId, memberId, action),
-    onSuccess: async () => {
+    onSuccess: async (result, variables) => {
       await invalidateParty(queryClient, partyId);
+      const messageByAction: Record<typeof variables.action, string> = {
+        accept: 'Player approved.',
+        decline: 'Player declined.',
+        kick: 'Player removed.'
+      };
+      showToast({
+        kind: 'success',
+        message: messageByAction[variables.action] ?? `Member updated to ${result.memberStatus}.`
+      });
+    },
+    onError: (error) => {
+      showToast({
+        kind: 'error',
+        message: error instanceof ApiError ? error.message : 'Unable to update member status.'
+      });
     }
   });
 

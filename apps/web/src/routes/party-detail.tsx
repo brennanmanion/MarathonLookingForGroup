@@ -3,19 +3,10 @@ import { Link, useParams } from 'react-router-dom';
 
 import { ApiError } from '../api/client';
 import { cancelParty, getParty, joinParty, leaveParty, moderateMember } from '../api/parties';
-import type { PartyMemberView, PartyTag, PartyView } from '../api/types';
+import type { PartyMemberView, PartyView } from '../api/types';
 import { useAuth } from '../app/auth';
+import { formatMap, formatPlaylist, formatTag } from '../app/party-options';
 import { useToast } from '../app/toasts';
-
-const SHELL_LABELS: Record<string, string> = {
-  destroyer: 'Destroyer',
-  vandal: 'Vandal',
-  recon: 'Recon',
-  assassin: 'Assassin',
-  triage: 'Triage',
-  thief: 'Thief',
-  sentinel: 'Sentinel'
-};
 
 function formatIdentityName(input: {
   globalDisplayName: string | null;
@@ -39,14 +30,6 @@ function formatPartyPerson(party: PartyView): string {
 
 function formatMemberName(member: PartyMemberView): string {
   return formatIdentityName(member);
-}
-
-function formatTag(tag: PartyTag): string {
-  if (tag.tagKey === 'shell' && tag.tagValue) {
-    return `Shell: ${SHELL_LABELS[tag.tagValue] ?? tag.tagValue}`;
-  }
-
-  return tag.tagValue ? `${tag.tagKey}:${tag.tagValue}` : tag.tagKey;
 }
 
 function statusBadgeClass(status: PartyView['status']): string {
@@ -209,7 +192,7 @@ export function PartyDetailPage() {
               <p className="route-tag">GET /parties/:partyId</p>
               <h2 className="card-title">{party?.title ?? 'Party detail'}</h2>
               <p className="meta">
-                {party ? `${party.activityKey} · Host ${formatPartyPerson(party)}` : 'Loading party details.'}
+                {party ? `${formatMap(party.activityKey)} · ${formatPlaylist(party.playlistKey)} · Host ${formatPartyPerson(party)}` : 'Loading party details.'}
               </p>
             </div>
             <span className={party ? statusBadgeClass(party.status) : 'badge badge-muted'}>
@@ -226,6 +209,14 @@ export function PartyDetailPage() {
             <article className="card">
               <div className="detail-grid">
                 <div className="detail-list">
+                  <div className="detail-row">
+                    <span className="detail-label">Map</span>
+                    <span>{formatMap(party.activityKey)}</span>
+                  </div>
+                  <div className="detail-row">
+                    <span className="detail-label">Mode</span>
+                    <span>{formatPlaylist(party.playlistKey)}</span>
+                  </div>
                   <div className="detail-row">
                     <span className="detail-label">Capacity</span>
                     <span>{party.filledSlots}/{party.maxSize} slots</span>

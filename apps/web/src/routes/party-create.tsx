@@ -1,26 +1,19 @@
+import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 
 import { ApiError } from '../api/client';
 import { createParty } from '../api/parties';
 import { useAuth } from '../app/auth';
+import { getPlaylistDetails, MAP_OPTIONS, PLAYLIST_OPTIONS, SHELL_OPTIONS } from '../app/party-options';
 import { useToast } from '../app/toasts';
-
-const SHELL_OPTIONS = [
-  { label: 'Any shell', value: '' },
-  { label: 'Destroyer', value: 'destroyer' },
-  { label: 'Vandal', value: 'vandal' },
-  { label: 'Recon', value: 'recon' },
-  { label: 'Assassin', value: 'assassin' },
-  { label: 'Triage', value: 'triage' },
-  { label: 'Thief', value: 'thief' },
-  { label: 'Sentinel', value: 'sentinel' }
-] as const;
 
 export function PartyCreatePage() {
   const navigate = useNavigate();
   const { me } = useAuth();
   const { showToast } = useToast();
+  const [selectedPlaylistKey, setSelectedPlaylistKey] = useState<string>(PLAYLIST_OPTIONS[0].value);
+  const selectedPlaylist = getPlaylistDetails(selectedPlaylistKey);
 
   const mutation = useMutation({
     mutationFn: createParty,
@@ -64,17 +57,24 @@ export function PartyCreatePage() {
             const form = new FormData(event.currentTarget);
             const description = String(form.get('description') ?? '').trim();
             const requirementText = String(form.get('requirementText') ?? '').trim();
-            const shell = String(form.get('shell') ?? '').trim();
+            const playlistKey = String(form.get('playlistKey') ?? PLAYLIST_OPTIONS[0].value).trim();
+            const playlist = getPlaylistDetails(playlistKey);
+            const activityKey = String(form.get('activityKey') ?? MAP_OPTIONS[0].value).trim();
+            const shellOne = String(form.get('shellOne') ?? '').trim();
+            const shellTwo = playlist.shellSlots > 1 ? String(form.get('shellTwo') ?? '').trim() : '';
             const voiceRequired = form.get('voiceRequired') === 'on';
+            const selectedShells = Array.from(new Set([shellOne, shellTwo].filter(Boolean)));
+            const tags = selectedShells.map((shell) => ({ tagKey: 'shell', tagValue: shell }));
 
             void mutation.mutateAsync({
               title: String(form.get('title') ?? '').trim(),
-              activityKey: String(form.get('activityKey') ?? 'marathon'),
-              maxSize: Number(form.get('maxSize') ?? 3),
+              activityKey,
+              playlistKey,
+              maxSize: playlist.maxSize,
               voiceRequired,
               ...(description ? { description } : {}),
               ...(requirementText ? { requirementText } : {}),
-              ...(shell ? { tags: [{ tagKey: 'shell', tagValue: shell }] } : {})
+              ...(tags.length ? { tags } : {})
             });
           }}>
             <label className="field">
@@ -82,16 +82,37 @@ export function PartyCreatePage() {
               <input name="title" type="text" maxLength={120} placeholder="Shield run in 10" required />
             </label>
             <label className="field">
-              <span>Activity key</span>
-              <input name="activityKey" type="text" defaultValue="marathon" required />
+              <span>Mode</span>
+              <select
+                name="playlistKey"
+                value={selectedPlaylistKey}
+                required
+                onChange={(event) => setSelectedPlaylistKey(event.currentTarget.value)}
+              >
+                {PLAYLIST_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="field readonly-field">
+              <span>Party size</span>
+              <p>{selectedPlaylist.maxSize} players</p>
+            </div>
+            <label className="field">
+              <span>Map</span>
+              <select name="activityKey" defaultValue={MAP_OPTIONS[0].value} required>
+                {MAP_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
             </label>
             <label className="field">
-              <span>Max size</span>
-              <input name="maxSize" type="number" min={2} max={6} defaultValue={3} required />
-            </label>
-            <label className="field">
-              <span>Preferred shell</span>
-              <select name="shell" defaultValue="">
+              <span>Preferred shell 1</span>
+              <select name="shellOne" defaultValue="">
                 {SHELL_OPTIONS.map((option) => (
                   <option key={option.value || 'any'} value={option.value}>
                     {option.label}
@@ -99,6 +120,18 @@ export function PartyCreatePage() {
                 ))}
               </select>
             </label>
+            {selectedPlaylist.shellSlots > 1 ? (
+              <label className="field">
+                <span>Preferred shell 2</span>
+                <select name="shellTwo" defaultValue="">
+                  {SHELL_OPTIONS.map((option) => (
+                    <option key={option.value || 'any'} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
             <label className="field checkbox-field">
               <input name="voiceRequired" type="checkbox" />
               <span>Mic required</span>

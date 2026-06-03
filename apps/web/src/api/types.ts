@@ -83,6 +83,7 @@ export interface PartyListResponse {
 export interface CreatePartyBody {
   title: string;
   activityKey: string;
+  playlistKey?: string;
   maxSize: number;
   voiceRequired?: boolean;
   description?: string;

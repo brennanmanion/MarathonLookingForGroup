@@ -689,8 +689,12 @@ components:
           type: string
         activityKey:
           type: string
+          description: Current PWA client uses this for map selection so party lists can filter by map.
+          example: perimeter
         playlistKey:
           type: string
+          description: Current PWA client uses this for mode selection, currently "duos" or "trios".
+          example: trios
         platformKey:
           type: string
         regionKey:
@@ -706,6 +710,7 @@ components:
         maxSize:
           type: integer
           minimum: 1
+          description: Current PWA client derives this from playlistKey; duos uses 2 and trios uses 3.
         approvalMode:
           type: string
         visibility:
@@ -720,6 +725,10 @@ components:
           type: string
         tags:
           type: array
+          description: Current PWA client sends non-map preferences, such as shell, as tags.
+          example:
+            - tagKey: shell
+              tagValue: recon
           items:
             $ref: '#/components/schemas/PartyTag'
 
@@ -788,8 +797,10 @@ components:
           type: string
         activityKey:
           type: string
+          example: perimeter
         playlistKey:
           type: [string, 'null']
+          example: trios
         platformKey:
           type: string
         regionKey:
@@ -804,6 +815,7 @@ components:
           type: [string, 'null']
         maxSize:
           type: integer
+          description: Current PWA client derives this from playlistKey; duos uses 2 and trios uses 3.
         approvalMode:
           type: string
         visibility:
@@ -872,11 +884,14 @@ components:
 
     PartyTag:
       type: object
+      description: Free-form party metadata. Current PWA conventions include tagKey=shell. Map is stored in activityKey for filtering.
       properties:
         tagKey:
           type: string
+          example: shell
         tagValue:
           type: [string, 'null']
+          example: recon
       required: [tagKey, tagValue]
 
     PartyPerson:

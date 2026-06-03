@@ -485,6 +485,16 @@ a {
   gap: 0.35rem;
 }
 
+.readonly-field p {
+  margin: 0;
+  width: 100%;
+  padding: 0.85rem 0.95rem;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--ink);
+}
+
 .field-full {
   grid-column: 1 / -1;
 }

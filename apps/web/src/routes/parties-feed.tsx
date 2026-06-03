@@ -2,18 +2,9 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 
 import { listParties } from '../api/parties';
-import type { PartyTag, PartyView } from '../api/types';
+import type { PartyView } from '../api/types';
 import { useAuth } from '../app/auth';
-
-const SHELL_LABELS: Record<string, string> = {
-  destroyer: 'Destroyer',
-  vandal: 'Vandal',
-  recon: 'Recon',
-  assassin: 'Assassin',
-  triage: 'Triage',
-  thief: 'Thief',
-  sentinel: 'Sentinel'
-};
+import { formatMap, formatPlaylist, formatTag } from '../app/party-options';
 
 function formatPartyPerson(party: PartyView): string {
   const host = party.host;
@@ -27,14 +18,6 @@ function formatPartyPerson(party: PartyView): string {
   }
 
   return host.bungieDisplayName ?? 'Unknown host';
-}
-
-function formatTag(tag: PartyTag): string {
-  if (tag.tagKey === 'shell' && tag.tagValue) {
-    return `Shell: ${SHELL_LABELS[tag.tagValue] ?? tag.tagValue}`;
-  }
-
-  return tag.tagValue ? `${tag.tagKey}:${tag.tagValue}` : tag.tagKey;
 }
 
 function formatCapacity(party: PartyView): string {
@@ -111,7 +94,7 @@ export function PartiesFeedPage() {
                   <div>
                     <h3 className="feed-title">{party.title}</h3>
                     <p className="feed-subtitle">
-                      {party.activityKey} · Host {formatPartyPerson(party)}
+                      {formatMap(party.activityKey)} · {formatPlaylist(party.playlistKey)} · Host {formatPartyPerson(party)}
                     </p>
                   </div>
                   <span className={statusBadgeClass(party.status)}>
@@ -119,6 +102,8 @@ export function PartiesFeedPage() {
                   </span>
                 </div>
                 <div className="feed-meta">
+                  <span className="badge">Map: {formatMap(party.activityKey)}</span>
+                  <span className="badge">{formatPlaylist(party.playlistKey)}</span>
                   <span className="badge">{formatCapacity(party)}</span>
                   <span className="badge">{describeVerification(party)}</span>
                   {party.voiceRequired ? (

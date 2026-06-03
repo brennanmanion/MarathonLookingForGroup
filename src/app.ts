@@ -2,7 +2,6 @@ import Fastify from 'fastify';
 
 import type { AppConfig } from './config.js';
 import type { DbAdapter } from './db.js';
-import { registerDocs } from './docs.js';
 import { isAppError } from './errors.js';
 import { InMemoryPartyEventBus, type PartyEventBus } from './party-events.js';
 import { registerAuthRoutes } from './routes/auth.js';
@@ -49,7 +48,6 @@ export async function createApp(config: AppConfig, db: DbAdapter | null, service
     });
   });
 
-  await registerDocs(app);
   await registerHealthRoutes(app);
   await registerDocsRoutes(app);
   await registerEventRoutes(app, { config, db, partyEvents });

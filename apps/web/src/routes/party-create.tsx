@@ -96,10 +96,6 @@ export function PartyCreatePage() {
                 ))}
               </select>
             </label>
-            <div className="field readonly-field">
-              <span>Party size</span>
-              <p>{selectedPlaylist.maxSize} players</p>
-            </div>
             <label className="field">
               <span>Map</span>
               <select name="activityKey" defaultValue={MAP_OPTIONS[0].value} required>

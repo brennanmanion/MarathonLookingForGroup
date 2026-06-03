@@ -13,7 +13,7 @@
     "check:tests": "tsc --noEmit -p tsconfig.test.json",
     "test:integration": "node --import tsx --test test/**/*.test.ts",
     "migrate": "node dist/migrate.js",
-    "render:build": "npm ci && npm --prefix apps/web ci && npm run build:web && npm run build",
+    "render:build": "npm ci --include=dev && npm --prefix apps/web ci --include=dev && npm run build:web && npm run build",
     "start": "node dist/server.js"
   },
   "dependencies": {

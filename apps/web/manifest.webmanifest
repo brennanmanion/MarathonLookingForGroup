@@ -1,0 +1,18 @@
+{
+  "name": "Marathon LFG",
+  "short_name": "Marathon LFG",
+  "start_url": "/app",
+  "scope": "/app",
+  "display": "standalone",
+  "background_color": "#0d1525",
+  "theme_color": "#111c2d",
+  "description": "Browser shell for the Marathon Looking For Group PWA pivot.",
+  "icons": [
+    {
+      "src": "/app/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

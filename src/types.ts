@@ -3,6 +3,7 @@ export type RedirectMode = 'native' | 'web';
 export interface BungieStartBody {
   platform?: string;
   appState?: string;
+  returnTo?: string;
   redirectMode?: RedirectMode;
 }
 
@@ -17,7 +18,7 @@ export interface HandoffConsumeBody {
 }
 
 export interface RefreshTokenBody {
-  refreshToken: string;
+  refreshToken?: string;
 }
 
 export interface AppSessionResponse {
@@ -25,6 +26,13 @@ export interface AppSessionResponse {
   refreshToken: string;
   expiresIn: number;
   refreshExpiresIn: number;
+}
+
+export interface AuthSessionStateResponse {
+  authenticated: boolean;
+  user?: {
+    userId: string;
+  };
 }
 
 export interface CreatePartyTagInput {

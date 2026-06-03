@@ -1,530 +1,477 @@
 openapi: 3.1.0
 info:
-  title: Marathon LFG Backend API
-  version: 0.1.0
-  description: >
-    Starter OpenAPI document for the currently implemented backend routes.
-    This is suitable for Swagger UI or Redoc and should be kept in sync with the backend as routes evolve.
+  title: Marathon LFG API
+  version: 0.2.0
+  description: |
+    Backend contract for the Marathon Looking For Group MVP.
+
+    Browser/PWA notes:
+    - Web auth starts with `POST /auth/bungie/start` using `redirectMode: web`.
+    - Web callback sets the `mlfg_at`, `mlfg_rt`, and `mlfg_csrf` cookies.
+    - Cookie-authenticated mutation requests must send `X-CSRF-Token` matching `mlfg_csrf`.
+    - The browser shell is served from `/app`, but the shell routes themselves are not modeled as API operations here.
 servers:
   - url: http://127.0.0.1:3000
     description: Local development
 tags:
-  - name: Health
   - name: Auth
   - name: Me
   - name: Parties
 paths:
   /health:
     get:
-      tags: [Health]
+      tags: [Auth]
       summary: Health check
-      operationId: getHealth
       responses:
         '200':
-          description: Service is healthy
+          description: Service is reachable.
           content:
             application/json:
               schema:
                 type: object
-                additionalProperties: false
                 properties:
                   ok:
                     type: boolean
                 required: [ok]
-              examples:
-                ok:
-                  value:
-                    ok: true
 
   /auth/bungie/start:
     post:
       tags: [Auth]
-      summary: Start native Bungie OAuth
-      operationId: startBungieLogin
+      summary: Start Bungie OAuth
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/BungieStartBody'
+              $ref: '#/components/schemas/BungieStartRequest'
       responses:
         '200':
-          description: Bungie authorization URL created
+          description: Login transaction created.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/BungieStartResponse'
-        '501':
-          description: Web mode not implemented
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+        '400':
+          $ref: '#/components/responses/ErrorResponse'
         '503':
-          description: Database or config unavailable
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+          $ref: '#/components/responses/ErrorResponse'
 
   /auth/bungie/callback:
     get:
       tags: [Auth]
       summary: Bungie OAuth callback
-      operationId: handleBungieCallback
+      description: |
+        Handles both native and web login completions.
+
+        Web mode:
+        - sets auth cookies
+        - redirects to `/app/auth/callback/success` or `/app/auth/callback/error`
+
+        Native mode:
+        - redirects to the configured app handoff URL
       parameters:
-        - in: query
-          name: code
+        - name: code
+          in: query
+          required: false
           schema:
             type: string
-        - in: query
-          name: state
+        - name: state
+          in: query
+          required: false
           schema:
             type: string
-        - in: query
-          name: error
+        - name: error
+          in: query
+          required: false
           schema:
             type: string
-        - in: query
-          name: error_description
+        - name: error_description
+          in: query
+          required: false
           schema:
             type: string
       responses:
         '302':
-          description: Redirect to app handoff URL
+          description: Redirects to the app completion route.
         '400':
-          description: Invalid or expired OAuth state
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+          $ref: '#/components/responses/ErrorResponse'
         '502':
-          description: Bungie auth or membership lookup failed
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+          $ref: '#/components/responses/ErrorResponse'
 
-  /auth/bungie/handoff/consume:
-    post:
+  /auth/session:
+    get:
       tags: [Auth]
-      summary: Exchange one-time handoff ticket for app session tokens
-      operationId: consumeHandoffTicket
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/HandoffConsumeBody'
+      summary: Inspect current browser session
+      security:
+        - MlfgAccessCookie: []
+        - BearerAuth: []
+        - {}
       responses:
         '200':
-          description: App session issued
+          description: Authenticated or unauthenticated session state.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AppSessionResponse'
-        '400':
-          description: Invalid handoff ticket
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '409':
-          description: Ticket already used
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '410':
-          description: Ticket expired
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/AuthSessionState'
 
   /auth/refresh:
     post:
       tags: [Auth]
-      summary: Rotate refresh token and issue new session tokens
-      operationId: refreshSession
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/RefreshTokenBody'
-      responses:
-        '200':
-          description: Session rotated
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AppSessionResponse'
-        '401':
-          description: Invalid or expired refresh token
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-
-  /auth/logout:
-    post:
-      tags: [Auth]
-      summary: Revoke the current app refresh token
-      operationId: logoutSession
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/RefreshTokenBody'
-      responses:
-        '200':
-          description: Session revoked or already absent
-          content:
-            application/json:
-              schema:
-                type: object
-                additionalProperties: false
-                properties:
-                  ok:
-                    type: boolean
-                required: [ok]
-
-  /me:
-    get:
-      tags: [Me]
-      summary: Get current user profile
-      operationId: getMe
+      summary: Rotate the current app session
+      description: |
+        Supports two modes:
+        - native/API clients send `refreshToken` in the JSON body
+        - browser/PWA clients use the `mlfg_rt` cookie and `X-CSRF-Token`
+      parameters:
+        - $ref: '#/components/parameters/CsrfHeader'
       security:
-        - bearerAuth: []
-      responses:
-        '200':
-          description: Current user
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/MeResponse'
-        '401':
-          description: Invalid or missing bearer token
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-
-  /me/bungie/resync:
-    post:
-      tags: [Me]
-      summary: Re-sync Bungie identity and Marathon verification state
-      operationId: resyncBungieAccount
-      security:
-        - bearerAuth: []
-      responses:
-        '200':
-          description: Refreshed current user
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/MeResponse'
-        '401':
-          description: Invalid or missing bearer token
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '502':
-          description: Stored Bungie session refresh failed
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-
-  /parties:
-    get:
-      tags: [Parties]
-      summary: List visible parties
-      operationId: listParties
-      security:
-        - bearerAuth: []
+        - MlfgAccessCookie: []
         - {}
-      responses:
-        '200':
-          description: Visible parties
-          content:
-            application/json:
-              schema:
-                type: object
-                additionalProperties: false
-                properties:
-                  items:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/PartyView'
-                required: [items]
-    post:
-      tags: [Parties]
-      summary: Create a party
-      operationId: createParty
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CreatePartyBody'
-      responses:
-        '201':
-          description: Party created
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CreatePartyResponse'
-        '401':
-          description: Invalid or missing bearer token
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '403':
-          description: Marathon verification missing
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-
-  /parties/{partyId}:
-    get:
-      tags: [Parties]
-      summary: Get party detail
-      operationId: getParty
-      security:
-        - bearerAuth: []
-        - {}
-      parameters:
-        - $ref: '#/components/parameters/PartyId'
-      responses:
-        '200':
-          description: Party detail
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/PartyView'
-        '404':
-          description: Party not found or not visible
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-    patch:
-      tags: [Parties]
-      summary: Deferred party edit endpoint
-      operationId: updatePartyDeferred
-      security:
-        - bearerAuth: []
-      parameters:
-        - $ref: '#/components/parameters/PartyId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/UpdatePartyBody'
-      responses:
-        '501':
-          description: Party editing deferred
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-
-  /parties/{partyId}/join:
-    post:
-      tags: [Parties]
-      summary: Join a party
-      operationId: joinParty
-      security:
-        - bearerAuth: []
-      parameters:
-        - $ref: '#/components/parameters/PartyId'
       requestBody:
         required: false
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/JoinPartyBody'
+              $ref: '#/components/schemas/RefreshRequest'
       responses:
         '200':
-          description: Join request or acceptance succeeded
+          description: Session rotated.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/JoinPartyResponse'
+                oneOf:
+                  - $ref: '#/components/schemas/AppSessionResponse'
+                  - $ref: '#/components/schemas/CookieRefreshResponse'
+        '401':
+          $ref: '#/components/responses/ErrorResponse'
         '403':
-          description: Membership blocked or Marathon verification missing
+          $ref: '#/components/responses/ErrorResponse'
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Revoke the current app session
+      description: |
+        Supports two modes:
+        - native/API clients send `refreshToken` in the JSON body
+        - browser/PWA clients use the refresh cookie and `X-CSRF-Token`
+      parameters:
+        - $ref: '#/components/parameters/CsrfHeader'
+      security:
+        - MlfgAccessCookie: []
+        - {}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+      responses:
+        '200':
+          description: Logout completed.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                required: [ok]
+        '403':
+          $ref: '#/components/responses/ErrorResponse'
+
+  /me:
+    get:
+      tags: [Me]
+      summary: Get current user bootstrap payload
+      security:
+        - BearerAuth: []
+        - MlfgAccessCookie: []
+      responses:
+        '200':
+          description: Authenticated user profile and PWA capability metadata.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeResponse'
+        '401':
+          $ref: '#/components/responses/ErrorResponse'
+
+  /me/bungie/resync:
+    post:
+      tags: [Me]
+      summary: Refresh Bungie membership state
+      parameters:
+        - $ref: '#/components/parameters/CsrfHeader'
+      security:
+        - BearerAuth: []
+        - MlfgAccessCookie: []
+      responses:
+        '200':
+          description: Bungie identity and Marathon verification refreshed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeResponse'
+        '401':
+          $ref: '#/components/responses/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/ErrorResponse'
+        '502':
+          $ref: '#/components/responses/ErrorResponse'
+
+  /parties:
+    get:
+      tags: [Parties]
+      summary: List visible parties
+      security:
+        - MlfgAccessCookie: []
+        - BearerAuth: []
+        - {}
+      responses:
+        '200':
+          description: Public parties plus viewer-visible private/cancelled parties.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PartySummary'
+                required: [items]
+    post:
+      tags: [Parties]
+      summary: Create a party
+      parameters:
+        - $ref: '#/components/parameters/CsrfHeader'
+      security:
+        - BearerAuth: []
+        - MlfgAccessCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePartyRequest'
+      responses:
+        '201':
+          description: Party created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartyCreateResponse'
+        '401':
+          $ref: '#/components/responses/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/ErrorResponse'
         '409':
-          description: Party closed, full, or already joined
+          $ref: '#/components/responses/ErrorResponse'
+
+  /parties/{partyId}:
+    get:
+      tags: [Parties]
+      summary: Get party detail
+      security:
+        - MlfgAccessCookie: []
+        - BearerAuth: []
+        - {}
+      parameters:
+        - $ref: '#/components/parameters/PartyId'
+      responses:
+        '200':
+          description: Party detail.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/PartyDetail'
+        '404':
+          $ref: '#/components/responses/ErrorResponse'
+    patch:
+      tags: [Parties]
+      summary: Edit a party
+      description: Deferred for the current MVP.
+      parameters:
+        - $ref: '#/components/parameters/PartyId'
+        - $ref: '#/components/parameters/CsrfHeader'
+      security:
+        - BearerAuth: []
+        - MlfgAccessCookie: []
+      responses:
+        '501':
+          $ref: '#/components/responses/ErrorResponse'
+
+  /parties/{partyId}/join:
+    post:
+      tags: [Parties]
+      summary: Request to join a party
+      parameters:
+        - $ref: '#/components/parameters/PartyId'
+        - $ref: '#/components/parameters/CsrfHeader'
+      security:
+        - BearerAuth: []
+        - MlfgAccessCookie: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JoinPartyRequest'
+      responses:
+        '200':
+          description: Join request accepted or queued.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartyJoinResponse'
+        '401':
+          $ref: '#/components/responses/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/ErrorResponse'
+        '409':
+          $ref: '#/components/responses/ErrorResponse'
 
   /parties/{partyId}/leave:
     post:
       tags: [Parties]
       summary: Leave a party
-      operationId: leaveParty
-      security:
-        - bearerAuth: []
       parameters:
         - $ref: '#/components/parameters/PartyId'
+        - $ref: '#/components/parameters/CsrfHeader'
+      security:
+        - BearerAuth: []
+        - MlfgAccessCookie: []
       responses:
         '200':
-          description: Left party
+          description: Membership moved to `left`.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PartyMembershipMutationResponse'
+                $ref: '#/components/schemas/PartyMutationResponse'
+        '401':
+          $ref: '#/components/responses/ErrorResponse'
         '409':
-          description: Invalid member state or host must cancel
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+          $ref: '#/components/responses/ErrorResponse'
 
   /parties/{partyId}/cancel:
     post:
       tags: [Parties]
-      summary: Cancel a party as host
-      operationId: cancelParty
-      security:
-        - bearerAuth: []
+      summary: Cancel a hosted party
       parameters:
         - $ref: '#/components/parameters/PartyId'
+        - $ref: '#/components/parameters/CsrfHeader'
+      security:
+        - BearerAuth: []
+        - MlfgAccessCookie: []
       responses:
         '200':
-          description: Party cancelled
+          description: Party cancelled.
           content:
             application/json:
               schema:
                 type: object
-                additionalProperties: false
                 properties:
                   partyId:
                     type: string
                     format: uuid
                   status:
-                    type: string
-                    enum: [cancelled]
+                    $ref: '#/components/schemas/PartyStatus'
                 required: [partyId, status]
+        '401':
+          $ref: '#/components/responses/ErrorResponse'
         '403':
-          description: Caller is not the party host
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+          $ref: '#/components/responses/ErrorResponse'
+        '409':
+          $ref: '#/components/responses/ErrorResponse'
 
   /parties/{partyId}/members/{memberId}/accept:
     post:
       tags: [Parties]
       summary: Accept a pending member
-      operationId: acceptPartyMember
-      security:
-        - bearerAuth: []
       parameters:
         - $ref: '#/components/parameters/PartyId'
         - $ref: '#/components/parameters/MemberId'
+        - $ref: '#/components/parameters/CsrfHeader'
+      security:
+        - BearerAuth: []
+        - MlfgAccessCookie: []
       responses:
         '200':
-          description: Member accepted
+          description: Member accepted.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PartyMembershipMutationResponse'
+                $ref: '#/components/schemas/PartyMutationResponse'
+        '401':
+          $ref: '#/components/responses/ErrorResponse'
         '403':
-          description: Caller is not the party host
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+          $ref: '#/components/responses/ErrorResponse'
         '409':
-          description: Invalid member state or party full
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+          $ref: '#/components/responses/ErrorResponse'
 
   /parties/{partyId}/members/{memberId}/decline:
     post:
       tags: [Parties]
       summary: Decline a pending member
-      operationId: declinePartyMember
-      security:
-        - bearerAuth: []
       parameters:
         - $ref: '#/components/parameters/PartyId'
         - $ref: '#/components/parameters/MemberId'
+        - $ref: '#/components/parameters/CsrfHeader'
+      security:
+        - BearerAuth: []
+        - MlfgAccessCookie: []
       responses:
         '200':
-          description: Member declined
+          description: Member declined.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PartyMembershipMutationResponse'
+                $ref: '#/components/schemas/PartyMutationResponse'
+        '401':
+          $ref: '#/components/responses/ErrorResponse'
         '403':
-          description: Caller is not the party host
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+          $ref: '#/components/responses/ErrorResponse'
         '409':
-          description: Invalid member state
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+          $ref: '#/components/responses/ErrorResponse'
 
   /parties/{partyId}/members/{memberId}/kick:
     post:
       tags: [Parties]
-      summary: Kick a member
-      operationId: kickPartyMember
-      security:
-        - bearerAuth: []
+      summary: Kick a pending or accepted member
       parameters:
         - $ref: '#/components/parameters/PartyId'
         - $ref: '#/components/parameters/MemberId'
+        - $ref: '#/components/parameters/CsrfHeader'
+      security:
+        - BearerAuth: []
+        - MlfgAccessCookie: []
       responses:
         '200':
-          description: Member kicked
+          description: Member kicked.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PartyMembershipMutationResponse'
+                $ref: '#/components/schemas/PartyMutationResponse'
+        '401':
+          $ref: '#/components/responses/ErrorResponse'
         '403':
-          description: Caller is not the party host
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+          $ref: '#/components/responses/ErrorResponse'
         '409':
-          description: Invalid member state
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+          $ref: '#/components/responses/ErrorResponse'
 
 components:
   securitySchemes:
-    bearerAuth:
+    BearerAuth:
       type: http
       scheme: bearer
-      bearerFormat: accessToken
-
+      bearerFormat: opaque
+      description: Native/mobile style bearer access token.
+    MlfgAccessCookie:
+      type: apiKey
+      in: cookie
+      name: mlfg_at
+      description: Browser/PWA access-token cookie. Non-GET requests also need `X-CSRF-Token`.
   parameters:
     PartyId:
       name: partyId
@@ -538,15 +485,24 @@ components:
       in: path
       required: true
       schema:
-        oneOf:
-          - type: string
-            format: uuid
-          - type: string
-
+        type: string
+    CsrfHeader:
+      name: X-CSRF-Token
+      in: header
+      required: false
+      description: Required when authenticating mutation requests with browser cookies.
+      schema:
+        type: string
+  responses:
+    ErrorResponse:
+      description: Error response
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
   schemas:
     ErrorResponse:
       type: object
-      additionalProperties: false
       properties:
         error:
           type: string
@@ -554,21 +510,25 @@ components:
           type: string
       required: [error, message]
 
-    BungieStartBody:
+    BungieStartRequest:
       type: object
       additionalProperties: false
       properties:
-        platform:
-          type: string
-        appState:
-          type: string
         redirectMode:
           type: string
           enum: [native, web]
+        platform:
+          type: string
+          enum: [ios, android]
+        appState:
+          type: string
+        returnTo:
+          type: string
+          description: Relative web route such as `/app` or `/app/parties`.
+      required: [redirectMode]
 
     BungieStartResponse:
       type: object
-      additionalProperties: false
       properties:
         loginId:
           type: string
@@ -578,29 +538,38 @@ components:
           format: uri
       required: [loginId, authorizeUrl]
 
-    HandoffConsumeBody:
-      type: object
-      additionalProperties: false
-      properties:
-        ticket:
-          type: string
-          format: uuid
-        loginId:
-          type: string
-          format: uuid
-      required: [ticket, loginId]
-
-    RefreshTokenBody:
+    RefreshRequest:
       type: object
       additionalProperties: false
       properties:
         refreshToken:
           type: string
-      required: [refreshToken]
+      description: Optional for browser cookie flow.
+
+    AuthSessionState:
+      oneOf:
+        - type: object
+          properties:
+            authenticated:
+              type: boolean
+              const: false
+          required: [authenticated]
+        - type: object
+          properties:
+            authenticated:
+              type: boolean
+              const: true
+            user:
+              type: object
+              properties:
+                userId:
+                  type: string
+                  format: uuid
+              required: [userId]
+          required: [authenticated, user]
 
     AppSessionResponse:
       type: object
-      additionalProperties: false
       properties:
         accessToken:
           type: string
@@ -612,16 +581,37 @@ components:
           type: integer
       required: [accessToken, refreshToken, expiresIn, refreshExpiresIn]
 
+    CookieRefreshResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        expiresIn:
+          type: integer
+        refreshExpiresIn:
+          type: integer
+      required: [ok, expiresIn, refreshExpiresIn]
+
     MeResponse:
       type: object
-      additionalProperties: false
       properties:
         userId:
           type: string
           format: uuid
+        profile:
+          type: object
+          properties:
+            primaryDisplayName:
+              type: string
+            bungieDisplayName:
+              type: [string, 'null']
+            bungieGlobalDisplayName:
+              type: [string, 'null']
+            bungieGlobalDisplayNameCode:
+              type: [integer, 'null']
+          required: [primaryDisplayName, bungieDisplayName, bungieGlobalDisplayName, bungieGlobalDisplayNameCode]
         bungie:
           type: object
-          additionalProperties: false
           properties:
             membershipId:
               type: [string, 'null']
@@ -636,30 +626,64 @@ components:
           required: [membershipId, displayName, globalDisplayName, globalDisplayNameCode, verified]
         marathon:
           type: object
-          additionalProperties: false
           properties:
             membershipId:
               type: [string, 'null']
             verified:
               type: boolean
           required: [membershipId, verified]
+        capabilities:
+          type: object
+          properties:
+            canCreateParty:
+              type: boolean
+            canUsePwaPartyWrites:
+              type: boolean
+            canUsePwaBungieResync:
+              type: boolean
+          required: [canCreateParty, canUsePwaPartyWrites, canUsePwaBungieResync]
+        pwa:
+          type: object
+          properties:
+            appBasePath:
+              type: string
+            loginPath:
+              type: string
+            callbackSuccessPath:
+              type: string
+            callbackErrorPath:
+              type: string
+            sessionPath:
+              type: string
+            mePath:
+              type: string
+            resyncPath:
+              type: string
+            partiesPath:
+              type: string
+            cookieAuth:
+              type: boolean
+            csrfRequired:
+              type: boolean
+          required:
+            - appBasePath
+            - loginPath
+            - callbackSuccessPath
+            - callbackErrorPath
+            - sessionPath
+            - mePath
+            - resyncPath
+            - partiesPath
+            - cookieAuth
+            - csrfRequired
         lastMembershipSyncAt:
           type: [string, 'null']
-      required: [userId, bungie, marathon, lastMembershipSyncAt]
+      required: [userId, profile, bungie, marathon, capabilities, pwa, lastMembershipSyncAt]
 
-    CreatePartyTagInput:
+    CreatePartyRequest:
       type: object
       additionalProperties: false
-      properties:
-        tagKey:
-          type: string
-        tagValue:
-          type: [string, 'null']
-      required: [tagKey]
-
-    CreatePartyBody:
-      type: object
-      additionalProperties: false
+      required: [title, activityKey, maxSize]
       properties:
         title:
           type: string
@@ -697,52 +721,10 @@ components:
         tags:
           type: array
           items:
-            $ref: '#/components/schemas/CreatePartyTagInput'
-      required: [title, activityKey, maxSize]
+            $ref: '#/components/schemas/PartyTag'
 
-    UpdatePartyBody:
+    PartyCreateResponse:
       type: object
-      additionalProperties: false
-      properties:
-        title:
-          type: string
-        playlistKey:
-          type: [string, 'null']
-        platformKey:
-          type: string
-        regionKey:
-          type: [string, 'null']
-        languageKey:
-          type: [string, 'null']
-        voiceRequired:
-          type: boolean
-        ranked:
-          type: [boolean, 'null']
-        scheduledFor:
-          type: [string, 'null']
-        maxSize:
-          type: integer
-          minimum: 1
-        approvalMode:
-          type: string
-        visibility:
-          type: string
-        requiresMarathonVerified:
-          type: boolean
-        requirementText:
-          type: [string, 'null']
-        description:
-          type: [string, 'null']
-        externalJoinUrl:
-          type: [string, 'null']
-        tags:
-          type: array
-          items:
-            $ref: '#/components/schemas/CreatePartyTagInput'
-
-    CreatePartyResponse:
-      type: object
-      additionalProperties: false
       properties:
         partyId:
           type: string
@@ -755,68 +737,53 @@ components:
           type: integer
       required: [partyId, status, filledSlots, openSlots]
 
-    JoinPartyBody:
+    JoinPartyRequest:
       type: object
       additionalProperties: false
       properties:
         noteToHost:
           type: string
 
-    JoinPartyResponse:
+    PartyJoinResponse:
       type: object
-      additionalProperties: false
       properties:
         partyId:
           type: string
           format: uuid
         myStatus:
-          type: string
-          enum: [accepted, pending]
+          $ref: '#/components/schemas/PartyMemberStatus'
         filledSlots:
           type: integer
         openSlots:
           type: integer
       required: [partyId, myStatus, filledSlots, openSlots]
 
-    PartyMembershipSummary:
+    PartyMutationResponse:
       type: object
-      additionalProperties: false
       properties:
+        partyId:
+          type: string
+          format: uuid
         memberId:
           type: string
-        status:
+        memberStatus:
+          $ref: '#/components/schemas/PartyMemberStatus'
+        filledSlots:
+          type: integer
+        openSlots:
+          type: integer
+        partyStatus:
           type: string
-          enum: [accepted, pending, declined, left, kicked]
-        noteToHost:
-          type: [string, 'null']
-        joinedAt:
-          type: [string, 'null']
-        respondedAt:
-          type: [string, 'null']
-        createdAt:
-          type: string
-      required: [memberId, status, noteToHost, joinedAt, respondedAt, createdAt]
+      required: [partyId, memberId, memberStatus, filledSlots, openSlots, partyStatus]
 
-    PartyTag:
+    PartySummary:
       type: object
-      additionalProperties: false
-      properties:
-        tagKey:
-          type: string
-        tagValue:
-          type: [string, 'null']
-      required: [tagKey, tagValue]
-
-    PartyView:
-      type: object
-      additionalProperties: false
       properties:
         partyId:
           type: string
           format: uuid
         status:
-          type: string
-          enum: [open, full, in_progress, closed, cancelled]
+          $ref: '#/components/schemas/PartyStatus'
         title:
           type: string
         activityKey:
@@ -858,19 +825,7 @@ components:
         updatedAt:
           type: string
         host:
-          type: object
-          additionalProperties: false
-          properties:
-            userId:
-              type: string
-              format: uuid
-            bungieDisplayName:
-              type: [string, 'null']
-            globalDisplayName:
-              type: [string, 'null']
-            globalDisplayNameCode:
-              type: [integer, 'null']
-          required: [userId, bungieDisplayName, globalDisplayName, globalDisplayNameCode]
+          $ref: '#/components/schemas/PartyPerson'
         tags:
           type: array
           items:
@@ -879,6 +834,10 @@ components:
           oneOf:
             - $ref: '#/components/schemas/PartyMembershipSummary'
             - type: 'null'
+        members:
+          type: array
+          items:
+            $ref: '#/components/schemas/PartyMemberView'
       required:
         - partyId
         - status
@@ -905,24 +864,92 @@ components:
         - host
         - tags
         - myMembership
+        - members
 
-    PartyMembershipMutationResponse:
+    PartyDetail:
+      allOf:
+        - $ref: '#/components/schemas/PartySummary'
+
+    PartyTag:
       type: object
-      additionalProperties: false
       properties:
-        partyId:
+        tagKey:
+          type: string
+        tagValue:
+          type: [string, 'null']
+      required: [tagKey, tagValue]
+
+    PartyPerson:
+      type: object
+      properties:
+        userId:
           type: string
           format: uuid
+        bungieDisplayName:
+          type: [string, 'null']
+        globalDisplayName:
+          type: [string, 'null']
+        globalDisplayNameCode:
+          type: [integer, 'null']
+      required: [userId, bungieDisplayName, globalDisplayName, globalDisplayNameCode]
+
+    PartyMembershipSummary:
+      type: object
+      properties:
         memberId:
           type: string
-        memberStatus:
+        status:
+          $ref: '#/components/schemas/PartyMemberStatus'
+        noteToHost:
+          type: [string, 'null']
+        joinedAt:
+          type: [string, 'null']
+        respondedAt:
+          type: [string, 'null']
+        createdAt:
           type: string
-          enum: [accepted, pending, declined, left, kicked]
-        filledSlots:
-          type: integer
-        openSlots:
-          type: integer
-        partyStatus:
+      required: [memberId, status, noteToHost, joinedAt, respondedAt, createdAt]
+
+    PartyMemberView:
+      type: object
+      properties:
+        memberId:
           type: string
-          enum: [open, full, in_progress, closed, cancelled]
-      required: [partyId, memberId, memberStatus, filledSlots, openSlots, partyStatus]
+        userId:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/PartyMemberStatus'
+        noteToHost:
+          type: [string, 'null']
+        joinedAt:
+          type: [string, 'null']
+        respondedAt:
+          type: [string, 'null']
+        createdAt:
+          type: string
+        bungieDisplayName:
+          type: [string, 'null']
+        globalDisplayName:
+          type: [string, 'null']
+        globalDisplayNameCode:
+          type: [integer, 'null']
+      required:
+        - memberId
+        - userId
+        - status
+        - noteToHost
+        - joinedAt
+        - respondedAt
+        - createdAt
+        - bungieDisplayName
+        - globalDisplayName
+        - globalDisplayNameCode
+
+    PartyStatus:
+      type: string
+      enum: [open, full, in_progress, closed, cancelled]
+
+    PartyMemberStatus:
+      type: string
+      enum: [accepted, pending, declined, left, kicked]

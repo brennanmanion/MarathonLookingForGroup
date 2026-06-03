@@ -1,8 +1,9 @@
 import type { FastifyRequest } from 'fastify';
 
 import type { AppConfig } from './config.js';
+import { getAccessTokenFromCookies, requireCsrfToken } from './cookies.js';
 import type { DbAdapter, Queryable } from './db.js';
-import { AppError } from './errors.js';
+import { AppError, isAppError } from './errors.js';
 import { verifyAccessToken } from './session.js';
 
 export interface CurrentUser {
@@ -29,6 +30,19 @@ interface CurrentUserRow {
   marathon_membership_id: string | null;
   marathon_verified: boolean | null;
   last_membership_sync_at: string | null;
+}
+
+const SAFE_COOKIE_AUTH_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+const SESSION_AUTH_ERROR_CODES = new Set(['auth_required', 'auth_invalid', 'auth_expired']);
+type AuthSource = 'bearer' | 'cookie';
+
+interface AccessTokenSelection {
+  token: string;
+  source: AuthSource;
+}
+
+interface CurrentUserOptions {
+  allowCookieMutation?: boolean;
 }
 
 export async function findCurrentUser(queryable: Queryable, userId: string): Promise<CurrentUser> {
@@ -85,26 +99,69 @@ function extractBearerToken(request: FastifyRequest): string {
   return value;
 }
 
+function resolveAccessToken(request: FastifyRequest): AccessTokenSelection {
+  if (request.headers.authorization) {
+    return {
+      token: extractBearerToken(request),
+      source: 'bearer'
+    };
+  }
+
+  const cookieToken = getAccessTokenFromCookies(request);
+  if (cookieToken) {
+    return {
+      token: cookieToken,
+      source: 'cookie'
+    };
+  }
+
+  throw new AppError(401, 'auth_required', 'Authentication is required');
+}
+
+function enforceCookieMutationPolicy(
+  request: FastifyRequest,
+  source: AuthSource,
+  options: CurrentUserOptions
+): void {
+  const method = request.method.toUpperCase();
+  if (source !== 'cookie' || SAFE_COOKIE_AUTH_METHODS.has(method)) {
+    return;
+  }
+
+  if (!options.allowCookieMutation) {
+    throw new AppError(
+      403,
+      'csrf_required',
+      'Cookie-authenticated mutation is not enabled for this route'
+    );
+  }
+
+  requireCsrfToken(request);
+}
+
 export async function requireCurrentUser(
   request: FastifyRequest,
   db: DbAdapter | null,
-  config: AppConfig
+  config: AppConfig,
+  options: CurrentUserOptions = {}
 ): Promise<CurrentUser> {
   if (!db) {
     throw new AppError(503, 'db_unavailable', 'DATABASE_URL is not configured');
   }
 
-  const token = extractBearerToken(request);
-  const payload = verifyAccessToken(config, token);
+  const selection = resolveAccessToken(request);
+  enforceCookieMutationPolicy(request, selection.source, options);
+  const payload = verifyAccessToken(config, selection.token);
   return findCurrentUser(db, payload.sub);
 }
 
 export async function findOptionalCurrentUser(
   request: FastifyRequest,
   db: DbAdapter | null,
-  config: AppConfig
+  config: AppConfig,
+  options: CurrentUserOptions = {}
 ): Promise<CurrentUser | null> {
-  if (!request.headers.authorization) {
+  if (!request.headers.authorization && !getAccessTokenFromCookies(request)) {
     return null;
   }
 
@@ -112,7 +169,24 @@ export async function findOptionalCurrentUser(
     throw new AppError(503, 'db_unavailable', 'DATABASE_URL is not configured');
   }
 
-  const token = extractBearerToken(request);
-  const payload = verifyAccessToken(config, token);
+  const selection = resolveAccessToken(request);
+  enforceCookieMutationPolicy(request, selection.source, options);
+  const payload = verifyAccessToken(config, selection.token);
   return findCurrentUser(db, payload.sub);
+}
+
+export async function findSessionCurrentUser(
+  request: FastifyRequest,
+  db: DbAdapter | null,
+  config: AppConfig
+): Promise<CurrentUser | null> {
+  try {
+    return await findOptionalCurrentUser(request, db, config);
+  } catch (error) {
+    if (isAppError(error) && SESSION_AUTH_ERROR_CODES.has(error.code)) {
+      return null;
+    }
+
+    throw error;
+  }
 }

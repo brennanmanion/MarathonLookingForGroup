@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title">
+  <title>Marathon LFG</title>
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#17314f"/>
+      <stop offset="100%" stop-color="#0c1626"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#7ef0c3"/>
+      <stop offset="100%" stop-color="#2fd0a1"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="28" fill="url(#bg)"/>
+  <path d="M24 34h80v12H24zm0 24h46v12H24zm0 24h80v12H24z" fill="rgba(255,255,255,0.14)"/>
+  <circle cx="92" cy="64" r="18" fill="url(#accent)"/>
+  <path d="M89 55h6v18h-6zm-7 7h20v6H82z" fill="#082018"/>
+</svg>

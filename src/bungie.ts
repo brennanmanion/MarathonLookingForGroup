@@ -58,12 +58,13 @@ interface CallbackQuery {
 }
 
 interface CallbackResult {
+  redirectMode: RedirectMode;
   redirectUrl: string;
+  session?: AppSessionResponse;
 }
 
 interface PersistedUser {
   userId: string;
-  handoffTicket: string;
 }
 
 interface StoredBungieSessionRow {
@@ -98,6 +99,23 @@ function normalizeRedirectMode(value: RedirectMode | undefined): RedirectMode {
   return value === 'web' ? 'web' : 'native';
 }
 
+function normalizeWebReturnTo(value: string | undefined): string | null {
+  if (value === undefined) {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  if (!trimmed.startsWith('/') || trimmed.startsWith('//')) {
+    throw new AppError(400, 'return_to_invalid', 'returnTo must be a relative path');
+  }
+
+  return trimmed;
+}
+
 function createAuthorizeUrl(config: AppConfig, oauthState: string): string {
   if (!config.bungieClientId) {
     throw new AppError(503, 'config_missing', 'BUNGIE_CLIENT_ID is not configured');
@@ -113,6 +131,20 @@ function createAuthorizeUrl(config: AppConfig, oauthState: string): string {
   }
 
   return url.toString();
+}
+
+function requireWebAppBaseUrl(config: AppConfig): string {
+  if (!config.webAppBaseUrl) {
+    throw new AppError(503, 'config_missing', 'WEB_APP_BASE_URL is not configured');
+  }
+
+  return config.webAppBaseUrl;
+}
+
+function buildWebAppUrl(config: AppConfig, relativePath: string): URL {
+  const base = requireWebAppBaseUrl(config);
+  const normalizedBase = base.endsWith('/') ? base : `${base}/`;
+  return new URL(relativePath.replace(/^\/+/, ''), normalizedBase);
 }
 
 async function claimLoginTransaction(db: DbAdapter, state: string): Promise<LoginTransactionRow> {
@@ -403,7 +435,6 @@ async function persistMembershipSync(
 
 async function persistUserAndTokens(
   client: PoolClient,
-  login: LoginTransactionRow,
   tokenResponse: BungieTokenResponse,
   membershipData: BungieMembershipData
 ): Promise<PersistedUser> {
@@ -518,23 +549,8 @@ async function persistUserAndTokens(
     ]
   );
 
-  const handoffTicket = randomUUID();
-  await client.query(
-    `
-      insert into auth_handoff_tickets (
-        ticket_id,
-        login_id,
-        user_id,
-        expires_at
-      )
-      values ($1, $2, $3, $4)
-    `,
-    [handoffTicket, login.id, userId, new Date(Date.now() + HANDOFF_TTL_MS)]
-  );
-
   return {
-    userId,
-    handoffTicket
+    userId
   };
 }
 
@@ -554,6 +570,50 @@ function buildNativeRedirect(config: AppConfig, login: LoginTransactionRow, tick
   return url.toString();
 }
 
+async function createHandoffTicket(client: PoolClient, loginId: string, userId: string): Promise<string> {
+  const handoffTicket = randomUUID();
+
+  await client.query(
+    `
+      insert into auth_handoff_tickets (
+        ticket_id,
+        login_id,
+        user_id,
+        expires_at
+      )
+      values ($1, $2, $3, $4)
+    `,
+    [handoffTicket, loginId, userId, new Date(Date.now() + HANDOFF_TTL_MS)]
+  );
+
+  return handoffTicket;
+}
+
+function buildWebRedirect(config: AppConfig, login: LoginTransactionRow): string {
+  const url = buildWebAppUrl(config, 'auth/callback/success');
+
+  if (login.app_state) {
+    url.searchParams.set('returnTo', login.app_state);
+  }
+
+  return url.toString();
+}
+
+function buildWebErrorRedirect(
+  config: AppConfig,
+  login: LoginTransactionRow | null,
+  errorCode: string
+): string {
+  const url = buildWebAppUrl(config, 'auth/callback/error');
+  url.searchParams.set('code', errorCode);
+
+  if (login?.app_state) {
+    url.searchParams.set('returnTo', login.app_state);
+  }
+
+  return url.toString();
+}
+
 export async function startBungieLogin(
   db: DbAdapter | null,
   config: AppConfig,
@@ -561,8 +621,12 @@ export async function startBungieLogin(
 ): Promise<BungieStartResponse> {
   const database = requireBungieDb(db);
   const redirectMode = normalizeRedirectMode(body.redirectMode);
-  if (redirectMode !== 'native') {
-    throw new AppError(501, 'web_mode_not_implemented', 'Web Bungie login is not implemented yet');
+  const appState = redirectMode === 'web'
+    ? normalizeWebReturnTo(body.returnTo)
+    : body.appState ?? null;
+
+  if (redirectMode === 'web') {
+    requireWebAppBaseUrl(config);
   }
 
   const loginId = randomUUID();
@@ -586,7 +650,7 @@ export async function startBungieLogin(
     loginId,
     oauthState,
     redirectMode,
-    body.appState ?? null,
+    appState,
     body.platform ?? null,
     expiresAt
   ]);
@@ -606,12 +670,30 @@ export async function handleBungieCallback(
   db: DbAdapter | null,
   config: AppConfig,
   query: CallbackQuery,
-  fetchImpl: FetchLike = fetch
+  options: {
+    fetchImpl?: FetchLike;
+    metadata?: { ip: string | undefined; userAgent: string | undefined };
+  } = {}
 ): Promise<CallbackResult> {
   const database = requireBungieDb(db);
   requireBungieConfig(config);
+  const fetchImpl = options.fetchImpl ?? fetch;
 
   if (query.error) {
+    if (query.state) {
+      try {
+        const login = await claimLoginTransaction(database, query.state);
+        if (login.redirect_mode === 'web') {
+          return {
+            redirectMode: 'web',
+            redirectUrl: buildWebErrorRedirect(config, login, query.error)
+          };
+        }
+      } catch {
+        // Fall through to the API-style error response when the state is invalid or expired.
+      }
+    }
+
     throw new AppError(502, 'bungie_auth_failed', query.error_description ?? 'Bungie OAuth returned an error');
   }
 
@@ -620,19 +702,52 @@ export async function handleBungieCallback(
   }
 
   const login = await claimLoginTransaction(database, query.state);
-  if (login.redirect_mode !== 'native') {
-    throw new AppError(501, 'web_mode_not_implemented', 'Web Bungie login is not implemented yet');
+  let tokenResponse: BungieTokenResponse;
+  let membershipData: BungieMembershipData;
+
+  try {
+    tokenResponse = await exchangeAuthorizationCode(config, query.code, fetchImpl);
+    membershipData = await fetchMembershipData(config, tokenResponse.access_token!, fetchImpl);
+  } catch (error) {
+    if (login.redirect_mode === 'web' && error instanceof AppError) {
+      return {
+        redirectMode: 'web',
+        redirectUrl: buildWebErrorRedirect(config, login, error.code)
+      };
+    }
+
+    throw error;
   }
 
-  const tokenResponse = await exchangeAuthorizationCode(config, query.code, fetchImpl);
-  const membershipData = await fetchMembershipData(config, tokenResponse.access_token!, fetchImpl);
-  const persisted = await database.withTransaction((client) =>
-    persistUserAndTokens(client, login, tokenResponse, membershipData)
-  );
+  const result = await database.withTransaction(async (client) => {
+    const persisted = await persistUserAndTokens(client, tokenResponse, membershipData);
 
-  return {
-    redirectUrl: buildNativeRedirect(config, login, persisted.handoffTicket)
-  };
+    if (login.redirect_mode === 'web') {
+      const session = await createAppSession(client, config, {
+        userId: persisted.userId,
+        createdByLoginId: login.id,
+        metadata: options.metadata ?? {
+          ip: undefined,
+          userAgent: undefined
+        }
+      });
+
+      return {
+        redirectMode: login.redirect_mode,
+        redirectUrl: buildWebRedirect(config, login),
+        session
+      } satisfies CallbackResult;
+    }
+
+    const handoffTicket = await createHandoffTicket(client, login.id, persisted.userId);
+
+    return {
+      redirectMode: login.redirect_mode,
+      redirectUrl: buildNativeRedirect(config, login, handoffTicket)
+    } satisfies CallbackResult;
+  });
+
+  return result;
 }
 
 export async function consumeHandoffTicket(

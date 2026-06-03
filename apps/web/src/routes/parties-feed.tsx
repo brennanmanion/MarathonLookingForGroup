@@ -5,6 +5,16 @@ import { listParties } from '../api/parties';
 import type { PartyTag, PartyView } from '../api/types';
 import { useAuth } from '../app/auth';
 
+const SHELL_LABELS: Record<string, string> = {
+  destroyer: 'Destroyer',
+  vandal: 'Vandal',
+  recon: 'Recon',
+  assassin: 'Assassin',
+  triage: 'Triage',
+  thief: 'Thief',
+  sentinel: 'Sentinel'
+};
+
 function formatPartyPerson(party: PartyView): string {
   const host = party.host;
 
@@ -20,6 +30,10 @@ function formatPartyPerson(party: PartyView): string {
 }
 
 function formatTag(tag: PartyTag): string {
+  if (tag.tagKey === 'shell' && tag.tagValue) {
+    return `Shell: ${SHELL_LABELS[tag.tagValue] ?? tag.tagValue}`;
+  }
+
   return tag.tagValue ? `${tag.tagKey}:${tag.tagValue}` : tag.tagKey;
 }
 
@@ -107,6 +121,11 @@ export function PartiesFeedPage() {
                 <div className="feed-meta">
                   <span className="badge">{formatCapacity(party)}</span>
                   <span className="badge">{describeVerification(party)}</span>
+                  {party.voiceRequired ? (
+                    <span className="badge badge-warning">Mic required</span>
+                  ) : (
+                    <span className="badge badge-muted">Mic optional</span>
+                  )}
                   {party.status === 'full' ? (
                     <span className="badge badge-warning">Join from detail disabled until a slot opens</span>
                   ) : null}

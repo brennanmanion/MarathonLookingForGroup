@@ -84,8 +84,10 @@ export interface CreatePartyBody {
   title: string;
   activityKey: string;
   maxSize: number;
+  voiceRequired?: boolean;
   description?: string;
   requirementText?: string;
+  tags?: PartyTag[];
 }
 
 export interface CreatePartyResponse {

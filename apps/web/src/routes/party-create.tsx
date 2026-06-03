@@ -6,6 +6,17 @@ import { createParty } from '../api/parties';
 import { useAuth } from '../app/auth';
 import { useToast } from '../app/toasts';
 
+const SHELL_OPTIONS = [
+  { label: 'Any shell', value: '' },
+  { label: 'Destroyer', value: 'destroyer' },
+  { label: 'Vandal', value: 'vandal' },
+  { label: 'Recon', value: 'recon' },
+  { label: 'Assassin', value: 'assassin' },
+  { label: 'Triage', value: 'triage' },
+  { label: 'Thief', value: 'thief' },
+  { label: 'Sentinel', value: 'sentinel' }
+] as const;
+
 export function PartyCreatePage() {
   const navigate = useNavigate();
   const { me } = useAuth();
@@ -53,12 +64,17 @@ export function PartyCreatePage() {
             const form = new FormData(event.currentTarget);
             const description = String(form.get('description') ?? '').trim();
             const requirementText = String(form.get('requirementText') ?? '').trim();
+            const shell = String(form.get('shell') ?? '').trim();
+            const voiceRequired = form.get('voiceRequired') === 'on';
+
             void mutation.mutateAsync({
               title: String(form.get('title') ?? '').trim(),
               activityKey: String(form.get('activityKey') ?? 'marathon'),
               maxSize: Number(form.get('maxSize') ?? 3),
+              voiceRequired,
               ...(description ? { description } : {}),
-              ...(requirementText ? { requirementText } : {})
+              ...(requirementText ? { requirementText } : {}),
+              ...(shell ? { tags: [{ tagKey: 'shell', tagValue: shell }] } : {})
             });
           }}>
             <label className="field">
@@ -72,6 +88,20 @@ export function PartyCreatePage() {
             <label className="field">
               <span>Max size</span>
               <input name="maxSize" type="number" min={2} max={6} defaultValue={3} required />
+            </label>
+            <label className="field">
+              <span>Preferred shell</span>
+              <select name="shell" defaultValue="">
+                {SHELL_OPTIONS.map((option) => (
+                  <option key={option.value || 'any'} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field checkbox-field">
+              <input name="voiceRequired" type="checkbox" />
+              <span>Mic required</span>
             </label>
             <label className="field field-full">
               <span>Description</span>

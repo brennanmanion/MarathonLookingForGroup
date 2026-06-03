@@ -248,6 +248,22 @@ test('integration: host Bungie code stays hidden until a member is accepted', as
 
     assert.equal(joinResponse.statusCode, 200);
 
+    const hostDetailWhilePending = await app.inject({
+      method: 'GET',
+      url: `/parties/${partyId}`,
+      headers: {
+        authorization: `Bearer ${hostBearer}`
+      }
+    });
+
+    assert.equal(hostDetailWhilePending.statusCode, 200);
+    assert.equal(hostDetailWhilePending.json().members.length, 1);
+    assert.equal(hostDetailWhilePending.json().members[0].userId, MEMBER_USER_ID);
+    assert.equal(hostDetailWhilePending.json().members[0].status, 'pending');
+    assert.equal(hostDetailWhilePending.json().members[0].bungieDisplayName, 'MemberMask');
+    assert.equal(hostDetailWhilePending.json().members[0].globalDisplayName, 'MemberMask');
+    assert.equal(hostDetailWhilePending.json().members[0].globalDisplayNameCode, null);
+
     const memberSession = await db.withTransaction((client) =>
       createAppSession(client, config, {
         userId: MEMBER_USER_ID,
@@ -285,6 +301,23 @@ test('integration: host Bungie code stays hidden until a member is accepted', as
     });
 
     assert.equal(acceptResponse.statusCode, 200);
+
+    const hostDetailAfterAccept = await app.inject({
+      method: 'GET',
+      url: `/parties/${partyId}`,
+      headers: {
+        authorization: `Bearer ${hostBearer}`
+      }
+    });
+
+    assert.equal(hostDetailAfterAccept.statusCode, 200);
+    assert.equal(hostDetailAfterAccept.json().members.length, 1);
+    assert.equal(hostDetailAfterAccept.json().members[0].memberId, pendingMembership.memberId);
+    assert.equal(hostDetailAfterAccept.json().members[0].userId, MEMBER_USER_ID);
+    assert.equal(hostDetailAfterAccept.json().members[0].status, 'accepted');
+    assert.equal(hostDetailAfterAccept.json().members[0].bungieDisplayName, 'MemberMask');
+    assert.equal(hostDetailAfterAccept.json().members[0].globalDisplayName, 'MemberMask');
+    assert.equal(hostDetailAfterAccept.json().members[0].globalDisplayNameCode, 2222);
 
     const acceptedDetail = await app.inject({
       method: 'GET',

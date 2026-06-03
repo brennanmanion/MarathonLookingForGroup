@@ -1,0 +1,35 @@
+services:
+  - type: web
+    name: marathon-lfg
+    runtime: node
+    plan: starter
+    region: oregon
+    buildCommand: npm run render:build
+    preDeployCommand: npm run migrate
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: DATABASE_URL
+        fromDatabase:
+          name: marathon-lfg-db
+          property: connectionString
+      - key: APP_SESSION_SECRET
+        generateValue: true
+      - key: BUNGIE_CLIENT_ID
+        sync: false
+      - key: BUNGIE_CLIENT_SECRET
+        sync: false
+      - key: BUNGIE_API_KEY
+        sync: false
+
+databases:
+  - name: marathon-lfg-db
+    databaseName: marathon_lfg
+    user: marathon_lfg
+    plan: basic-256mb
+    region: oregon

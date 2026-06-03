@@ -1,4 +1,4 @@
-import { NavLink, Outlet } from 'react-router-dom';
+import { Link, NavLink, Outlet } from 'react-router-dom';
 
 import { useAuth } from '../app/auth';
 
@@ -21,7 +21,11 @@ export function ShellLayout() {
         <header className="masthead">
           <div>
             <p className="eyebrow">Marathon Looking For Group</p>
-            <h1>Browser Client</h1>
+            <h1>
+              <Link className="brand-link" to="/parties">
+                Browser Client
+              </Link>
+            </h1>
             <p className="status-line">
               Same-origin PWA scaffold running on cookie auth, CSRF protection, and the existing backend routes.
             </p>
@@ -35,7 +39,7 @@ export function ShellLayout() {
             </div>
             <nav className="nav-row" aria-label="Primary">
               <NavLink className={({ isActive }) => navClassName(isActive)} to="/parties">
-                Parties
+                Home
               </NavLink>
               <NavLink className={({ isActive }) => navClassName(isActive)} to="/parties/new">
                 Create

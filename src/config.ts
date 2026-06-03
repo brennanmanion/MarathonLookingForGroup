@@ -64,7 +64,14 @@ function readOptional(key: string): string | undefined {
   return value && value.trim() !== '' ? value : undefined;
 }
 
+function trimTrailingSlash(value: string): string {
+  return value.replace(/\/+$/, '');
+}
+
 export function loadConfig(): AppConfig {
+  const renderExternalUrl = readOptional('RENDER_EXTERNAL_URL');
+  const renderBaseUrl = renderExternalUrl ? trimTrailingSlash(renderExternalUrl) : undefined;
+
   return {
     nodeEnv: parseNodeEnv(process.env.NODE_ENV),
     host: process.env.HOST ?? '0.0.0.0',
@@ -73,9 +80,9 @@ export function loadConfig(): AppConfig {
     bungieClientId: readOptional('BUNGIE_CLIENT_ID'),
     bungieClientSecret: readOptional('BUNGIE_CLIENT_SECRET'),
     bungieApiKey: readOptional('BUNGIE_API_KEY'),
-    bungieRedirectUri: readOptional('BUNGIE_REDIRECT_URI'),
-    appUniversalLinkBase: readOptional('APP_UNIVERSAL_LINK_BASE'),
-    webAppBaseUrl: readOptional('WEB_APP_BASE_URL'),
+    bungieRedirectUri: readOptional('BUNGIE_REDIRECT_URI') ?? (renderBaseUrl ? `${renderBaseUrl}/auth/bungie/callback` : undefined),
+    appUniversalLinkBase: readOptional('APP_UNIVERSAL_LINK_BASE') ?? renderBaseUrl,
+    webAppBaseUrl: readOptional('WEB_APP_BASE_URL') ?? (renderBaseUrl ? `${renderBaseUrl}/app/` : undefined),
     sessionCookieDomain: readOptional('SESSION_COOKIE_DOMAIN'),
     appSessionSecret: readOptional('APP_SESSION_SECRET')
   };

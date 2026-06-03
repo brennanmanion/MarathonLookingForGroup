@@ -300,7 +300,14 @@ function mapPartyView(
   };
 }
 
-function mapPartyMemberView(row: PartyMemberViewRow): PartyMemberView {
+function mapPartyMemberView(
+  row: PartyMemberViewRow,
+  revealIdentity: boolean
+): PartyMemberView {
+  const globalDisplayName = revealIdentity
+    ? row.bungie_global_display_name
+    : stripBungieNameCode(row.bungie_global_display_name);
+
   return {
     memberId: row.member_id,
     userId: row.user_id,
@@ -310,8 +317,8 @@ function mapPartyMemberView(row: PartyMemberViewRow): PartyMemberView {
     respondedAt: row.responded_at,
     createdAt: row.created_at,
     bungieDisplayName: row.bungie_display_name,
-    globalDisplayName: row.bungie_global_display_name,
-    globalDisplayNameCode: row.bungie_global_display_name_code
+    globalDisplayName,
+    globalDisplayNameCode: revealIdentity ? row.bungie_global_display_name_code : null
   };
 }
 
@@ -451,7 +458,7 @@ async function loadPartyMembers(
     [partyId, hostUserId]
   );
 
-  return result.rows.map(mapPartyMemberView);
+  return result.rows.map((row) => mapPartyMemberView(row, row.status === 'accepted'));
 }
 
 export async function createParty(

@@ -23,12 +23,9 @@ export function ShellLayout() {
             <p className="eyebrow">Marathon Looking For Group</p>
             <h1>
               <Link className="brand-link" to="/parties">
-                Browser Client
+                Marathon LFG
               </Link>
             </h1>
-            <p className="status-line">
-              Same-origin PWA scaffold running on cookie auth, CSRF protection, and the existing backend routes.
-            </p>
           </div>
 
           <div className="masthead-side">

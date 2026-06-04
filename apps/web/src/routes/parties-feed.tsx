@@ -133,7 +133,7 @@ export function PartiesFeedPage() {
             {partiesQuery.data && partiesQuery.data.items.length === 0 ? (
               <article className="feed-item">
                 <h3 className="feed-title">No public parties yet</h3>
-                <p className="feed-subtitle">Once the frontend grows, pagination, filtering, and sorting will layer onto this feed.</p>
+                <p className="feed-subtitle">Create a party to help other runners find a squad.</p>
               </article>
             ) : null}
           </div>

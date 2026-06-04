@@ -44,9 +44,6 @@ export function PartyCreatePage() {
         <article className="card">
           <p className="route-tag">POST /parties</p>
           <h2 className="card-title">Create a party</h2>
-          <p className="meta">
-            This first React cut only exposes fields the backend already supports. Party editing still remains deferred.
-          </p>
           {!me?.capabilities.canCreateParty ? (
             <p className="notice notice-error">This account cannot create parties until Marathon verification succeeds.</p>
           ) : null}

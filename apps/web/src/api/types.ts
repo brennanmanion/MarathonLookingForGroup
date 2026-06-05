@@ -91,6 +91,17 @@ export interface CreatePartyBody {
   tags?: PartyTag[];
 }
 
+export interface UpdatePartyBody {
+  title?: string;
+  activityKey?: string;
+  playlistKey?: string | null;
+  maxSize?: number;
+  voiceRequired?: boolean;
+  description?: string | null;
+  requirementText?: string | null;
+  tags?: PartyTag[];
+}
+
 export interface CreatePartyResponse {
   partyId: string;
   status: string;

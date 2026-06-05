@@ -9,7 +9,8 @@ import {
   joinParty,
   kickPartyMember,
   leaveParty,
-  listParties
+  listParties,
+  updateParty
 } from '../parties.js';
 import type { AppConfig } from '../config.js';
 import type { DbAdapter } from '../db.js';
@@ -20,14 +21,6 @@ import { findOptionalCurrentUser, requireCurrentUser } from '../users.js';
 
 async function notImplemented(): Promise<never> {
   throw new AppError(501, 'not_implemented', 'Party endpoints have not been implemented yet');
-}
-
-async function partyEditDeferred(): Promise<never> {
-  throw new AppError(
-    501,
-    'party_edit_deferred',
-    'Party editing is deferred for the current MVP. Planned host-only edits include title, max size, schedule, requirements, description, and tags.'
-  );
 }
 
 const createPartyBodySchema = {
@@ -94,6 +87,7 @@ const updatePartyBodySchema = {
   minProperties: 1,
   properties: {
     title: { type: 'string', minLength: 1 },
+    activityKey: { type: 'string', minLength: 1 },
     playlistKey: nullableStringSchema,
     platformKey: { type: 'string', minLength: 1 },
     regionKey: nullableStringSchema,
@@ -259,11 +253,12 @@ export async function registerPartyRoutes(
       params: partyParamsSchema,
       body: updatePartyBodySchema
     }
-  }, async (request) => {
-    await requireCurrentUser(request, deps.db, deps.config, {
+  }, async (request, reply) => {
+    const user = await requireCurrentUser(request, deps.db, deps.config, {
       allowCookieMutation: true
     });
-    return partyEditDeferred();
+    const result = await updateParty(deps.db, user, request.params.partyId, request.body);
+    return reply.code(200).send(result);
   });
   app.post<{ Params: { partyId: string }; Body: { noteToHost?: string } }>('/parties/:partyId/join', {
     schema: {

@@ -53,3 +53,16 @@ export function formatTag(tag: PartyTag): string {
 
   return tag.tagValue ? `${tag.tagKey}:${tag.tagValue}` : tag.tagKey;
 }
+
+export function shellTagsFromValues(values: string[]): PartyTag[] {
+  return Array.from(new Set(values.filter(Boolean))).map((shell) => ({
+    tagKey: 'shell',
+    tagValue: shell
+  }));
+}
+
+export function shellValuesFromTags(tags: PartyTag[]): string[] {
+  return tags
+    .filter((tag) => tag.tagKey === 'shell' && tag.tagValue)
+    .map((tag) => tag.tagValue as string);
+}

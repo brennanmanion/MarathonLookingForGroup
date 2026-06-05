@@ -7,7 +7,8 @@ import type {
   JoinPartyResponse,
   PartyListResponse,
   PartyMutationResponse,
-  PartyView
+  PartyView,
+  UpdatePartyBody
 } from './types';
 
 export async function listParties() {
@@ -21,6 +22,16 @@ export async function getParty(partyId: string) {
 export async function createParty(body: CreatePartyBody) {
   return apiRequest<CreatePartyResponse>('/parties', {
     method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(body)
+  });
+}
+
+export async function updateParty(partyId: string, body: UpdatePartyBody) {
+  return apiRequest<PartyView>(`/parties/${encodeURIComponent(partyId)}`, {
+    method: 'PATCH',
     headers: {
       'Content-Type': 'application/json'
     },

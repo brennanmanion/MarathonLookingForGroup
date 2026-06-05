@@ -291,15 +291,33 @@ paths:
     patch:
       tags: [Parties]
       summary: Edit a party
-      description: Deferred for the current MVP.
+      description: Host-only party metadata edit.
       parameters:
         - $ref: '#/components/parameters/PartyId'
         - $ref: '#/components/parameters/CsrfHeader'
       security:
         - BearerAuth: []
         - MlfgAccessCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePartyRequest'
       responses:
-        '501':
+        '200':
+          description: Party updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartyDetail'
+        '401':
+          $ref: '#/components/responses/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/ErrorResponse'
+        '409':
           $ref: '#/components/responses/ErrorResponse'
 
   /parties/{partyId}/join:
@@ -729,6 +747,55 @@ components:
           example:
             - tagKey: shell
               tagValue: recon
+          items:
+            $ref: '#/components/schemas/PartyTag'
+
+    UpdatePartyRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        title:
+          type: string
+        activityKey:
+          type: string
+          description: Current PWA client uses this for map selection so party lists can filter by map.
+          example: perimeter
+        playlistKey:
+          type: [string, 'null']
+          description: Current PWA client uses this for mode selection, currently "duos" or "trios".
+          example: trios
+        platformKey:
+          type: string
+        regionKey:
+          type: [string, 'null']
+        languageKey:
+          type: [string, 'null']
+        voiceRequired:
+          type: boolean
+        ranked:
+          type: [boolean, 'null']
+        scheduledFor:
+          type: [string, 'null']
+        maxSize:
+          type: integer
+          minimum: 1
+          description: Current PWA client derives this from playlistKey; duos uses 2 and trios uses 3.
+        approvalMode:
+          type: string
+        visibility:
+          type: string
+        requiresMarathonVerified:
+          type: boolean
+        requirementText:
+          type: [string, 'null']
+        description:
+          type: [string, 'null']
+        externalJoinUrl:
+          type: [string, 'null']
+        tags:
+          type: array
+          description: Replaces the full tag set for the party when provided.
           items:
             $ref: '#/components/schemas/PartyTag'
 

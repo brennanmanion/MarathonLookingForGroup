@@ -278,9 +278,14 @@ export function PartyDetailPage() {
               {status === 'authenticated' && isHost ? (
                 <div className="button-row">
                   {party.status !== 'cancelled' ? (
-                    <button className="button button-danger" type="button" onClick={() => void cancelMutation.mutateAsync()}>
-                      Cancel party
-                    </button>
+                    <>
+                      <Link className="button button-secondary" to={`/parties/${party.partyId}/edit`}>
+                        Edit party
+                      </Link>
+                      <button className="button button-danger" type="button" onClick={() => void cancelMutation.mutateAsync()}>
+                        Cancel party
+                      </button>
+                    </>
                   ) : null}
                 </div>
               ) : null}

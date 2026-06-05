@@ -2,7 +2,7 @@ import type { PoolClient } from 'pg';
 
 import type { DbAdapter, Queryable } from './db.js';
 import { AppError } from './errors.js';
-import type { CreatePartyBody } from './types.js';
+import type { CreatePartyBody, UpdatePartyBody } from './types.js';
 import type { CurrentUser } from './users.js';
 
 type PartyStatus = 'open' | 'full' | 'in_progress' | 'closed' | 'cancelled';
@@ -215,7 +215,7 @@ function ensureMarathonVerified(user: CurrentUser): void {
   }
 }
 
-function normalizeTags(body: CreatePartyBody) {
+function normalizeTags(body: Pick<CreatePartyBody, 'tags'> | Pick<UpdatePartyBody, 'tags'>) {
   return (body.tags ?? []).map((tag) => ({
     tagKey: tag.tagKey,
     tagValue: tag.tagValue ?? null
@@ -542,6 +542,89 @@ export async function createParty(
       openSlots: Math.max(party.max_size - 1, 0)
     };
   });
+}
+
+export async function updateParty(
+  db: DbAdapter | null,
+  user: CurrentUser,
+  partyId: string,
+  body: UpdatePartyBody
+): Promise<PartyView> {
+  const database = requirePartyDb(db);
+
+  await database.withTransaction(async (client) => {
+    const party = await loadLockedParty(client, partyId);
+    ensureHost(user, party);
+
+    if (party.status === 'cancelled') {
+      throw new AppError(409, 'party_closed', 'Cancelled parties cannot be edited');
+    }
+
+    const acceptedCount = await countAcceptedMembers(client, partyId);
+    const filledSlots = 1 + acceptedCount;
+    const nextMaxSize = body.maxSize ?? party.max_size;
+    if (nextMaxSize < filledSlots) {
+      throw new AppError(
+        409,
+        'party_size_too_small',
+        'Party size cannot be smaller than the current host plus accepted members'
+      );
+    }
+
+    const setClauses = ['updated_at = now()'];
+    const params: unknown[] = [partyId];
+
+    function addField(column: string, value: unknown): void {
+      params.push(value);
+      setClauses.push(`${column} = $${params.length}`);
+    }
+
+    if (body.title !== undefined) addField('title', body.title);
+    if (body.activityKey !== undefined) addField('activity_key', body.activityKey);
+    if (body.playlistKey !== undefined) addField('playlist_key', body.playlistKey);
+    if (body.platformKey !== undefined) addField('platform_key', body.platformKey);
+    if (body.regionKey !== undefined) addField('region_key', body.regionKey);
+    if (body.languageKey !== undefined) addField('language_key', body.languageKey);
+    if (body.voiceRequired !== undefined) addField('voice_required', body.voiceRequired);
+    if (body.ranked !== undefined) addField('ranked', body.ranked);
+    if (body.scheduledFor !== undefined) addField('scheduled_for', body.scheduledFor);
+    if (body.maxSize !== undefined) addField('max_size', body.maxSize);
+    if (body.approvalMode !== undefined) addField('approval_mode', body.approvalMode);
+    if (body.visibility !== undefined) addField('visibility', body.visibility);
+    if (body.requiresMarathonVerified !== undefined) {
+      addField('requires_marathon_verified', body.requiresMarathonVerified);
+    }
+    if (body.requirementText !== undefined) addField('requirement_text', body.requirementText);
+    if (body.description !== undefined) addField('description', body.description);
+    if (body.externalJoinUrl !== undefined) addField('external_join_url', body.externalJoinUrl);
+
+    await client.query(
+      `
+        update parties
+        set ${setClauses.join(', ')}
+        where id = $1
+      `,
+      params
+    );
+
+    if (body.tags !== undefined) {
+      await client.query('delete from party_tags where party_id = $1', [partyId]);
+      for (const tag of normalizeTags(body)) {
+        await client.query(
+          `
+            insert into party_tags (party_id, tag_key, tag_value)
+            values ($1, $2, $3)
+            on conflict do nothing
+          `,
+          [partyId, tag.tagKey, tag.tagValue]
+        );
+      }
+    }
+
+    await syncPartyOpenFullStatus(client, { ...party, max_size: nextMaxSize }, acceptedCount);
+  });
+
+  return getParty(database, user, partyId);
 }
 
 async function loadLockedParty(client: PoolClient, partyId: string): Promise<PartyRow> {

@@ -69,6 +69,10 @@ export async function registerWebRoutes(app: FastifyInstance): Promise<void> {
     );
   }
 
+  app.get('/app/parties/:partyId/edit', async (_request, reply) =>
+    sendWebFile(reply, shellRoot, shellIndexPath)
+  );
+
   app.get('/app/parties/:partyId', async (_request, reply) =>
     sendWebFile(reply, shellRoot, shellIndexPath)
   );

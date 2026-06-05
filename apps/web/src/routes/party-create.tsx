@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { ApiError } from '../api/client';
 import { createParty } from '../api/parties';
 import { useAuth } from '../app/auth';
-import { getPlaylistDetails, MAP_OPTIONS, PLAYLIST_OPTIONS, SHELL_OPTIONS } from '../app/party-options';
+import { getPlaylistDetails, MAP_OPTIONS, PLAYLIST_OPTIONS, SHELL_OPTIONS, shellTagsFromValues } from '../app/party-options';
 import { useToast } from '../app/toasts';
 
 export function PartyCreatePage() {
@@ -60,8 +60,7 @@ export function PartyCreatePage() {
             const shellOne = String(form.get('shellOne') ?? '').trim();
             const shellTwo = playlist.shellSlots > 1 ? String(form.get('shellTwo') ?? '').trim() : '';
             const voiceRequired = form.get('voiceRequired') === 'on';
-            const selectedShells = Array.from(new Set([shellOne, shellTwo].filter(Boolean)));
-            const tags = selectedShells.map((shell) => ({ tagKey: 'shell', tagValue: shell }));
+            const tags = shellTagsFromValues([shellOne, shellTwo]);
 
             void mutation.mutateAsync({
               title: String(form.get('title') ?? '').trim(),

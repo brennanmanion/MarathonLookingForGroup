@@ -12,6 +12,7 @@ import { LoginPage } from '../routes/login';
 import { PartiesFeedPage } from '../routes/parties-feed';
 import { PartyCreatePage } from '../routes/party-create';
 import { PartyDetailPage } from '../routes/party-detail';
+import { PartyEditPage } from '../routes/party-edit';
 import { ProfilePage } from '../routes/profile';
 
 function ProtectedRoute() {
@@ -62,11 +63,12 @@ function AppRoutes() {
           <Route path="/auth/callback/success" element={<CallbackSuccessPage />} />
           <Route path="/auth/callback/error" element={<CallbackErrorPage />} />
           <Route path="/parties" element={<PartiesFeedPage />} />
-          <Route path="/parties/:partyId" element={<PartyDetailPage />} />
           <Route element={<ProtectedRoute />}>
             <Route path="/parties/new" element={<PartyCreatePage />} />
+            <Route path="/parties/:partyId/edit" element={<PartyEditPage />} />
             <Route path="/me" element={<ProfilePage />} />
           </Route>
+          <Route path="/parties/:partyId" element={<PartyDetailPage />} />
           <Route path="*" element={<Navigate to="/parties" replace />} />
         </Route>
       </Routes>

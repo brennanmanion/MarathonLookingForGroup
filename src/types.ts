@@ -37,7 +37,7 @@ export interface AuthSessionStateResponse {
 
 export interface CreatePartyTagInput {
   tagKey: string;
-  tagValue?: string;
+  tagValue?: string | null;
 }
 
 export interface CreatePartyBody {
@@ -62,6 +62,7 @@ export interface CreatePartyBody {
 
 export interface UpdatePartyBody {
   title?: string;
+  activityKey?: string;
   playlistKey?: string | null;
   platformKey?: string;
   regionKey?: string | null;
